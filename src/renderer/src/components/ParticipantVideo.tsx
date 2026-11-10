@@ -1,6 +1,8 @@
 // Participant Video Component
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import type { User } from '@shared/types';
+import { useAppStore } from '../store';
+import { webrtcManager } from '../webrtc';
 
 interface ParticipantVideoProps {
   user: User;
@@ -18,159 +20,113 @@ export function ParticipantVideo({
   isLarge = false,
 }: ParticipantVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [isHovered, setIsHovered] = useState(false);
-  const [showName, setShowName] = useState(true);
+  const currentUserIsHost = useAppStore((s) => Boolean(s.currentUser?.isHost));
 
-  // Attach stream to video element
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
     }
-  }, [stream]);
+  }, [stream, user.videoEnabled, isScreenShare]);
 
-  // Handle video metadata loaded
   const handleLoadedMetadata = useCallback(() => {
     if (videoRef.current) {
       videoRef.current.play().catch(() => {});
     }
   }, []);
 
-  // Auto-hide name after delay
-  useEffect(() => {
-    if (!isLocal && !isScreenShare) {
-      const timer = setTimeout(() => setShowName(false), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [isLocal, isScreenShare]);
-
   const getInitials = (name: string) => {
     return name
       .split(' ')
-      .map(n => n[0])
+      .map((n) => n[0])
       .join('')
       .toUpperCase()
       .slice(0, 2);
   };
 
-  const isSpeaking = user.audioEnabled && !isScreenShare; // Simplified - would use audio level in real app
+  const isSpeaking = user.audioEnabled && !isScreenShare;
 
   return (
     <div
-      ref={containerRef}
-      className={`relative bg-tertiary rounded-xl overflow-hidden border border-border-color transition-all duration-200 ${
-        isLarge ? 'col-span-full row-span-2' : ''
-      } ${isHovered ? 'shadow-lg ring-2 ring-accent-primary/50' : ''} ${
-        isSpeaking ? 'ring-2 ring-green-500/50' : ''
+      className={`participant-tile ${isLarge ? 'col-span-full row-span-2' : ''} ${
+        isSpeaking ? 'speaking' : ''
       }`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
       role="group"
       aria-label={`${user.name}${isLocal ? ' (나)' : ''}${isScreenShare ? ' 화면 공유 중' : ''}`}
     >
-      {/* Video or Avatar */}
-      <div className="relative w-full h-full min-h-[200px]">
-        {stream && !isScreenShare ? (
+      {/* Top: Unobstructed Video / Avatar Stage */}
+      <div className="participant-video-stage">
+        {stream && (
           <video
             ref={videoRef}
             autoPlay
             muted={isLocal}
             playsInline
-            className="w-full h-full object-cover"
+            className={
+              isScreenShare
+                ? 'w-full h-full object-contain bg-black'
+                : user.videoEnabled
+                ? 'w-full h-full object-cover'
+                : 'hidden'
+            }
             onLoadedMetadata={handleLoadedMetadata}
-            style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }} // Mirror local video
+            style={{ transform: isLocal && !isScreenShare ? 'scaleX(-1)' : 'none' }}
           />
-        ) : isScreenShare && stream ? (
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            className="w-full h-full object-contain bg-black"
-            onLoadedMetadata={handleLoadedMetadata}
-          />
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-tertiary">
-            <div className={`avatar ${isLarge ? 'avatar-xl' : 'avatar-lg'} bg-gradient-to-br from-accent-primary to-accent-secondary`}>
+        )}
+
+        {(!stream || (!user.videoEnabled && !isScreenShare)) && (
+          <div className="w-full h-full flex flex-col items-center justify-center">
+            <div className={`avatar ${isLarge ? 'avatar-xl' : 'avatar-lg'}`}>
               {getInitials(user.name)}
             </div>
-            {!isLarge && (
-              <div className="mt-2 text-center">
-                <p className="font-medium text-primary">{user.name}</p>
-                <p className="text-xs text-muted">
-                  {isScreenShare ? '화면 공유 중' : '비디오 끔'}
-                </p>
-              </div>
-            )}
+            <p className="text-xs text-muted mt-2">
+              {isScreenShare ? '화면 공유 중' : '카메라 꺼짐'}
+            </p>
           </div>
         )}
 
-        {/* Speaking Indicator */}
-        {isSpeaking && !isScreenShare && (
-          <div className="absolute inset-0 border-2 border-green-500/50 rounded-xl animate-pulse pointer-events-none" />
-        )}
-
-        {/* Screen Share Badge */}
         {isScreenShare && (
-          <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 bg-green-600/90 text-white text-xs font-medium rounded-full">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <rect x="2" y="3" width="20" height="14" rx="2" />
-              <path d="M8 21h8M12 17v4" />
-            </svg>
-            화면 공유
-          </div>
-        )}
-
-        {/* Host Badge */}
-        {user.isHost && !isScreenShare && (
-          <div className="absolute top-2 right-2 badge badge-host">
-            호스트
-          </div>
-        )}
-
-        {/* You Badge */}
-        {isLocal && !isScreenShare && (
-          <div className="absolute top-2 right-2 badge bg-primary/80 text-primary">
-            나
-          </div>
-        )}
-
-        {/* Recording Indicator */}
-        {/* Would be passed as prop in real implementation */}
-
-        {/* Name Overlay */}
-        {(showName || isHovered) && !isScreenShare && (
-          <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-black/80 to-transparent">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-white truncate">
-                {user.name} {isLocal && '(나)'}
-              </span>
-              <div className="flex items-center gap-1">
-                {!user.audioEnabled && (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-400">
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="17" y1="17" x2="7" y2="7" />
-                  </svg>
-                )}
-                {!user.videoEnabled && !isScreenShare && (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-400">
-                    <polygon points="23 7 16 12 23 17 23 7" />
-                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                    <line x1="1" y1="5" x2="23" y2="19" />
-                  </svg>
-                )}
-              </div>
-            </div>
+          <div className="absolute top-2 left-2 badge badge-speaking">
+            <span>화면 공유 중</span>
           </div>
         )}
       </div>
 
-      {/* Hover Controls (for host) */}
-      {isHovered && !isLocal && !isScreenShare && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-1 opacity-0 animate-fade-in pointer-events-none">
-          {/* Host-only controls would go here */}
+      {/* Bottom: Dedicated Name & Status Bar BELOW the face video */}
+      <div className="participant-footer-bar">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ backgroundColor: user.audioEnabled ? '#10b981' : '#ef4444' }}
+          />
+          <span className="font-medium text-xs text-primary truncate">
+            {user.name} {isLocal ? '(나)' : ''}
+          </span>
+          {user.isHost && (
+            <span className="badge badge-host" style={{ padding: '1px 6px', fontSize: '10px' }}>
+              👑 호스트
+            </span>
+          )}
         </div>
-      )}
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {currentUserIsHost && !isLocal && !user.isHost && (
+            <button
+              onClick={() => webrtcManager.transferHost(user.id)}
+              className="btn btn-secondary"
+              style={{ padding: '2px 7px', fontSize: '10px', borderRadius: '6px' }}
+              title={`${user.name}님에게 호스트 권한 넘기기`}
+            >
+              👑 호스트 넘기기
+            </button>
+          )}
+          {!user.audioEnabled && (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2.2">
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="17" y1="17" x2="7" y2="7" />
+            </svg>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

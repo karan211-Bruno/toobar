@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
 import { api } from '../electron-bridge';
+import { webrtcManager } from '../webrtc';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -91,7 +92,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         stream.getTracks().forEach(t => t.stop());
       }
     };
-  }, [selectedVideoInput, activeTab, testStream]);
+  }, [selectedVideoInput, activeTab]);
+
+  useEffect(() => {
+    if (videoRef.current && testStream) {
+      videoRef.current.srcObject = testStream;
+    }
+  }, [testStream]);
 
   const handleAudioInputChange = async (deviceId: string) => {
     setSelectedAudioInput(deviceId);
@@ -173,7 +180,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   </select>
                   <button
                     type="button"
-                    onClick={() => setAudioEnabled(!audioEnabled)}
+                    onClick={() => webrtcManager.setLocalAudioEnabled(!audioEnabled)}
                     className={`btn btn-icon p-2 rounded-lg ${
                       audioEnabled ? 'btn-secondary' : 'btn-danger'
                     }`}
@@ -242,7 +249,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   카메라 미리보기
                 </label>
                 <div className="aspect-video bg-tertiary rounded-lg overflow-hidden border border-border-color relative">
-                  {testStream && videoRef.current ? (
+                  {testStream ? (
                     <video
                       ref={videoRef}
                       autoPlay
@@ -282,7 +289,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   </select>
                   <button
                     type="button"
-                    onClick={() => setVideoEnabled(!videoEnabled)}
+                    onClick={() => webrtcManager.setLocalVideoEnabled(!videoEnabled)}
                     className={`btn btn-icon p-2 rounded-lg ${
                       videoEnabled ? 'btn-secondary' : 'btn-danger'
                     }`}
@@ -310,7 +317,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               <div className="border-t border-border-color pt-4 space-y-4">
                 <label className="flex items-center justify-between cursor-pointer">
                   <span className="text-sm text-secondary">회의 참가 시 비디오 끄기</span>
-                  <div className={`toggle ${!videoEnabled ? 'active' : ''}`} onClick={() => setVideoEnabled(!videoEnabled)} />
+                  <div className={`toggle ${!videoEnabled ? 'active' : ''}`} onClick={() => webrtcManager.setLocalVideoEnabled(!videoEnabled)} />
                 </label>
                 <label className="flex items-center justify-between cursor-pointer">
                   <span className="text-sm text-secondary">내 비디오 미러링</span>
@@ -365,7 +372,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               <div className="border-t border-border-color pt-4">
                 <h3 className="font-medium text-secondary mb-3">정보</h3>
                 <div className="text-sm text-muted space-y-1">
-                  <p>ZoomClone v1.0.0</p>
+                  <p>Toobar v1.0.0</p>
                   <p>Electron + React + WebRTC</p>
                   <p className="mt-2">
                     <a href="https://github.com" target="_blank" rel="noopener noreferrer">

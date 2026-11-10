@@ -1,9 +1,9 @@
 {
-  "name": "zoom-clone",
+  "name": "toobar",
   "version": "1.0.0",
-  "description": "Cross-platform video conferencing app (Electron + React + WebRTC)",
+  "description": "Toobar - Cross-platform video conferencing app (Electron + React + WebRTC)",
   "main": "dist/main/index.js",
-  "author": "ZoomClone Team",
+  "author": "Toobar Team",
   "repository": {
     "type": "git",
     "url": "https://github.com/karan211-Bruno/zoom-clone.git"
@@ -13,13 +13,17 @@
     "dev:main": "tsx watch src/main/index.ts",
     "dev:renderer": "vite",
     "dev:signaling": "tsx watch src/signaling/server.ts",
-    "build": "npm run build:main && npm run build:renderer && npm run build:signaling",
+    "build": "node scripts/build-all.mjs",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build:signaling": "tsc -p tsconfig.signaling.json",
     "start": "electron dist/main/index.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win --x64",
+    "dist:linux": "node scripts/build-deb.mjs",
+    "dist:all": "npm run dist:mac && npm run dist:win && npm run dist:linux",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit"
   },
@@ -47,15 +51,23 @@
     "vite": "^5.4.0"
   },
   "build": {
-    "appId": "com.zoomclone.app",
-    "productName": "ZoomClone",
+    "appId": "com.toobar.app",
+    "productName": "Toobar",
+    "protocols": [
+      {
+        "name": "Toobar Meeting Link",
+        "schemes": [
+          "zoomclone",
+          "toobar"
+        ]
+      }
+    ],
     "directories": {
       "output": "dist-electron"
     },
     "files": [
-      "dist/main/**/*",
-      "dist/renderer/**/*",
-      "dist/signaling/**/*",
+      "dist/**/*",
+      "public/**/*",
       "node_modules/**/*",
       "package.json",
       "!node_modules/.cache/**/*",
@@ -64,9 +76,6 @@
       "!node_modules/tsx/**/*",
       "!node_modules/electron-builder/**/*",
       "!node_modules/@electron/rebuild/**/*"
-    ],
-    "asarUnpack": [
-      "dist/signaling/**/*"
     ],
     "mac": {
       "category": "public.app-category.video",
@@ -79,26 +88,27 @@
     "win": {
       "target": [
         "nsis",
-        "portable"
+        "portable",
+        "zip"
       ],
       "icon": "public/icon.ico"
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Toobar",
+      "runAfterFinish": true
+    },
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        "deb",
+        "AppImage"
       ],
       "category": "AudioVideo",
+      "maintainer": "Toobar Team <support@toobar.app>",
       "icon": "public/icon.png"
-    },
-    "extraResources": [
-      {
-        "from": "dist/signaling",
-        "to": "signaling",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ]
+    }
   }
 }

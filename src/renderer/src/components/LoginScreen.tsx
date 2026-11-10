@@ -1,11 +1,58 @@
 // Login / Join Meeting Screen
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useAppStore } from '../store';
+import { webrtcManager } from '../webrtc';
 import { api } from '../electron-bridge';
 import { v4 as uuidv4 } from 'uuid';
 
-export function LoginScreen({ onJoin }: { onJoin: () => void }) {
-  const [userName, setUserName] = useState('');
+function parseInviteInput(raw: string): { meetingId: string; serverUrl?: string; isFullLink?: boolean } {
+  const trimmed = raw.trim();
+  // Check URL format (toobar://join?meetingId=... or zoomclone://join?meetingId=... or http://...?meetingId=...)
+  if (
+    trimmed.includes('meetingId=') ||
+    trimmed.startsWith('toobar://') ||
+    trimmed.startsWith('zoomclone://')
+  ) {
+    try {
+      const queryPart = trimmed.split('?')[1] || '';
+      const params = new URLSearchParams(queryPart.split(/\s/)[0]);
+      let id = params.get('meetingId') || params.get('room') || '';
+      if (!id && (trimmed.startsWith('toobar://') || trimmed.startsWith('zoomclone://'))) {
+        id = trimmed.replace(/^(toobar|zoomclone):\/\/(join\/?)?/i, '').split(/[/?&\s]/)[0] || '';
+      }
+      const srv = params.get('server') || undefined;
+      if (id) {
+        return {
+          meetingId: id.toUpperCase(),
+          serverUrl: srv ? decodeURIComponent(srv) : undefined,
+          isFullLink: true,
+        };
+      }
+    } catch {
+      // ignore
+    }
+  }
+  // Check full invitation text format ("회의 ID: XXXX")
+  const matchId = trimmed.match(/회의\s*ID\s*[:：]\s*([A-Za-z0-9-]+)/i);
+  if (matchId?.[1]) {
+    const srvMatch = trimmed.match(/[?&]server=([^&\s]+)/i);
+    return {
+      meetingId: matchId[1].toUpperCase(),
+      serverUrl: srvMatch?.[1] ? decodeURIComponent(srvMatch[1]) : undefined,
+      isFullLink: true,
+    };
+  }
+  return { meetingId: trimmed.toUpperCase(), isFullLink: false };
+}
+
+export function LoginScreen({
+  onJoin,
+  onOpenUpdateModal,
+}: {
+  onJoin: () => void;
+  onOpenUpdateModal?: () => void;
+}) {
+  const [userName, setUserName] = useState(() => localStorage.getItem('zoomclone_user_name') || '');
   const [meetingId, setMeetingId] = useState('');
   const [password, setPassword] = useState('');
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -13,10 +60,71 @@ export function LoginScreen({ onJoin }: { onJoin: () => void }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'join' | 'new'>('join');
+  const signalingUrl = useAppStore(s => s.signalingUrl);
+  const setSignalingUrl = useAppStore(s => s.setSignalingUrl);
   const setCurrentUser = useAppStore(s => s.setCurrentUser);
   const setCurrentMeeting = useAppStore(s => s.setCurrentMeeting);
   const setIsJoining = useAppStore(s => s.setIsJoining);
-  const setConnectionError = useAppStore(s => s.setConnectionError);
+
+  useEffect(() => {
+    if (!userName && api.getNetworkInfo) {
+      api.getNetworkInfo().then((info) => {
+        if (info?.defaultUserName && !localStorage.getItem('zoomclone_user_name')) {
+          setUserName(info.defaultUserName);
+        }
+      }).catch(() => {});
+    }
+  }, [userName]);
+
+  const connectDirectlyToMeeting = useCallback(async (targetMeetingId: string, targetServerUrl?: string) => {
+    const resolvedName = userName.trim() || localStorage.getItem('zoomclone_user_name')?.trim() || '참가자';
+    localStorage.setItem('zoomclone_user_name', resolvedName);
+    if (targetServerUrl) {
+      setSignalingUrl(targetServerUrl);
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await webrtcManager.joinMeeting({
+        userName: resolvedName,
+        meetingId: targetMeetingId.trim().toUpperCase(),
+        password: password.trim() || undefined,
+        audioEnabled,
+        videoEnabled,
+      });
+
+      if (result.success && result.meeting && result.user) {
+        useAppStore.getState().setAudioEnabled(audioEnabled);
+        useAppStore.getState().setVideoEnabled(videoEnabled);
+        setCurrentUser(result.user);
+        setCurrentMeeting(result.meeting);
+        setIsJoining(false);
+        await api.setWindowMeeting?.(result.meeting.id);
+        onJoin();
+      } else {
+        setError(result.error?.message || '회의 참가에 실패했습니다.');
+      }
+    } catch (err) {
+      setError('서버 연결에 실패했습니다. 잠시 후 다시 시도해주세요.');
+      console.error('Direct join error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [audioEnabled, onJoin, password, setCurrentMeeting, setCurrentUser, setIsJoining, setSignalingUrl, userName, videoEnabled]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.search) {
+      const parsed = parseInviteInput(window.location.search);
+      if (parsed.meetingId) {
+        setMeetingId(parsed.meetingId);
+        setActiveTab('join');
+      }
+      if (parsed.serverUrl) {
+        setSignalingUrl(parsed.serverUrl);
+      }
+    }
+  }, [setSignalingUrl]);
 
   const handleJoinMeeting = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,23 +133,27 @@ export function LoginScreen({ onJoin }: { onJoin: () => void }) {
       return;
     }
 
+    localStorage.setItem('zoomclone_user_name', userName.trim());
     setIsLoading(true);
     setError(null);
 
     try {
-      const result = await api.joinMeeting({
+      await onJoin();
+      const result = await webrtcManager.joinMeeting({
         userName: userName.trim(),
-        meetingId: meetingId.trim(),
+        meetingId: meetingId.trim().toUpperCase(),
         password: password.trim() || undefined,
         audioEnabled,
         videoEnabled,
       });
 
       if (result.success && result.meeting && result.user) {
+        useAppStore.getState().setAudioEnabled(audioEnabled);
+        useAppStore.getState().setVideoEnabled(videoEnabled);
         setCurrentUser(result.user);
         setCurrentMeeting(result.meeting);
-        setIsJoining(true);
-        onJoin();
+        setIsJoining(false);
+        await api.setWindowMeeting?.(result.meeting.id);
       } else {
         setError(result.error?.message || '회의 참가에 실패했습니다.');
       }
@@ -60,12 +172,13 @@ export function LoginScreen({ onJoin }: { onJoin: () => void }) {
       return;
     }
 
+    localStorage.setItem('zoomclone_user_name', userName.trim());
     setIsLoading(true);
     setError(null);
 
     try {
       const newMeetingId = uuidv4().slice(0, 10).toUpperCase();
-      const result = await api.joinMeeting({
+      const result = await webrtcManager.joinMeeting({
         userName: userName.trim(),
         meetingId: newMeetingId,
         audioEnabled,
@@ -73,10 +186,11 @@ export function LoginScreen({ onJoin }: { onJoin: () => void }) {
       });
 
       if (result.success && result.meeting && result.user) {
+        useAppStore.getState().setAudioEnabled(audioEnabled);
+        useAppStore.getState().setVideoEnabled(videoEnabled);
         setCurrentUser(result.user);
         setCurrentMeeting(result.meeting);
         setIsJoining(true);
-        onJoin();
       } else {
         setError(result.error?.message || '회의 생성에 실패했습니다.');
       }
@@ -89,18 +203,27 @@ export function LoginScreen({ onJoin }: { onJoin: () => void }) {
   }, [userName, audioEnabled, videoEnabled, setCurrentUser, setCurrentMeeting, setIsJoining, onJoin]);
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-primary p-4">
-      <div className="w-full max-w-md">
+    <div className="app-screen overflow-y-auto p-6">
+      <div className="w-full max-w-md mx-auto my-auto card p-6">
         {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-accent-primary mb-4">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polygon points="21 15 16 10 21 5" />
+        <div className="text-center mb-5">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-3 shadow-lg overflow-hidden" style={{ background: 'linear-gradient(135deg, #1E3A8A 0%, #2563EB 50%, #06B6D4 100%)' }}>
+            <svg width="46" height="46" viewBox="0 0 1024 1024" fill="none">
+              <rect x="180" y="200" width="664" height="108" rx="54" fill="#0F172A" fillOpacity="0.55" stroke="white" strokeOpacity="0.3" strokeWidth="10" />
+              <circle cx="246" cy="254" r="22" fill="#34D399" />
+              <circle cx="312" cy="254" r="22" fill="#38BDF8" />
+              <rect x="368" y="238" width="260" height="32" rx="16" fill="white" fillOpacity="0.9" />
+              <circle cx="776" cy="254" r="22" fill="#FB7185" />
+              <rect x="180" y="370" width="460" height="410" rx="88" fill="white" />
+              <path d="M 672 480 L 820 388 C 846 372 880 390 880 422 L 880 728 C 880 760 846 778 820 762 L 672 670 Z" fill="white" />
+              <circle cx="410" cy="575" r="128" fill="#0284C7" />
+              <circle cx="410" cy="575" r="94" fill="#0F172A" />
+              <path d="M 352 520 H 468 V 550 H 426 V 642 H 394 V 550 H 352 Z" fill="#38BDF8" />
+              <circle cx="372" cy="530" r="16" fill="white" fillOpacity="0.6" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-primary">ZoomClone</h1>
-          <p className="text-secondary mt-1">화상 회의 플랫폼</p>
+          <h1 className="text-2xl font-bold text-primary">Toobar</h1>
+          <p className="text-xs text-secondary mt-0.5">실시간 화상 회의 및 협업 플랫폼</p>
         </div>
 
         {/* Tab Navigation */}
@@ -160,18 +283,26 @@ export function LoginScreen({ onJoin }: { onJoin: () => void }) {
           {activeTab === 'join' && (
             <div>
               <label htmlFor="meetingId" className="block text-sm font-medium text-secondary mb-1.5">
-                회의 ID
+                회의 ID 또는 초대 링크
               </label>
               <input
                 id="meetingId"
                 type="text"
                 value={meetingId}
-                onChange={(e) => setMeetingId(e.target.value.toUpperCase())}
-                placeholder="회의 ID 또는 개인 링크"
+                onChange={(e) => {
+                  const parsed = parseInviteInput(e.target.value);
+                  setMeetingId(parsed.meetingId);
+                  if (parsed.serverUrl) {
+                    setSignalingUrl(parsed.serverUrl);
+                  }
+                  if (parsed.isFullLink && parsed.meetingId) {
+                    connectDirectlyToMeeting(parsed.meetingId, parsed.serverUrl);
+                  }
+                }}
+                placeholder="회의 ID 또는 초대 링크(toobar://...) 붙여넣기"
                 className="input w-full text-center tracking-widest"
                 autoComplete="off"
                 required
-                maxLength={12}
               />
             </div>
           )}
@@ -231,9 +362,20 @@ export function LoginScreen({ onJoin }: { onJoin: () => void }) {
         </form>
 
         {/* Footer */}
-        <div className="mt-8 text-center text-xs text-muted">
-          <p>ZoomClone v1.0.0 &mdash; Electron + React + WebRTC</p>
-          <p className="mt-1">Windows & macOS 크로스 플랫폼 지원</p>
+        <div className="mt-6 pt-4 border-t border-border-color flex items-center justify-between text-xs text-muted">
+          <div>
+            <p className="font-medium text-secondary">Toobar v1.0.0</p>
+            <p className="mt-0.5">무설치 자동/수동 업데이트 지원</p>
+          </div>
+          {onOpenUpdateModal && (
+            <button
+              type="button"
+              onClick={onOpenUpdateModal}
+              className="btn btn-secondary py-1.5 px-3 text-xs"
+            >
+              🔄 업데이트 확인 / 설정
+            </button>
+          )}
         </div>
       </div>
     </div>

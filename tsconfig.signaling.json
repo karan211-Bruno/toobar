@@ -4,7 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "lib": ["ES2022"],
-    "outDir": "dist/signaling",
+    "outDir": "dist",
     "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
@@ -19,6 +19,7 @@
       "@shared/*": ["shared/*"]
     }
   },
+  "files": ["src/signaling/server.ts", "src/shared/types.ts"],
   "include": ["src/signaling/**/*", "src/shared/**/*"],
   "exclude": ["node_modules", "dist"]
 }

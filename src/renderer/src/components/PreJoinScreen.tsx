@@ -1,7 +1,8 @@
-// Pre-Join Preview Screen
-import React, { useEffect, useRef, useCallback } from 'react';
+// Pre-Join Preview Screen (Compact 2-Column Window-Safe Layout)
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useAppStore } from '../store';
 import { api } from '../electron-bridge';
+import { webrtcManager } from '../webrtc';
 
 export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }) {
   const {
@@ -23,34 +24,54 @@ export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }
   } = useAppStore();
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const devicesLoaded = useRef(false);
+  const [copied, setCopied] = useState(false);
 
   // Initialize preview stream
   useEffect(() => {
     let mounted = true;
-    let stream: MediaStream | null = null;
+    let currentStream: MediaStream | null = null;
 
     const initPreview = async () => {
       try {
         const constraints = await api.getMediaConstraints();
-        // Override with selected devices
+        const audioConstraint =
+          typeof constraints.audio === 'object' ? { ...constraints.audio } : {};
+        const videoConstraint =
+          typeof constraints.video === 'object' ? { ...constraints.video } : {};
+
         if (selectedAudioInput && selectedAudioInput !== 'default') {
-          (constraints.audio as any).deviceId = { exact: selectedAudioInput };
+          (audioConstraint as any).deviceId = { exact: selectedAudioInput };
         }
         if (selectedVideoInput && selectedVideoInput !== 'default') {
-          (constraints.video as any).deviceId = { exact: selectedVideoInput };
+          (videoConstraint as any).deviceId = { exact: selectedVideoInput };
         }
 
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        
-        if (mounted && videoRef.current) {
-          videoRef.current.srcObject = stream;
-          setLocalStream(stream);
-          
-          // Apply initial settings
-          stream.getAudioTracks().forEach(track => track.enabled = audioEnabled);
-          stream.getVideoTracks().forEach(track => track.enabled = videoEnabled);
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: audioConstraint,
+          video: videoConstraint,
+        });
+        currentStream = stream;
+
+        if (!mounted) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
         }
+
+        const { audioEnabled: curAudio, videoEnabled: curVideo } = useAppStore.getState();
+        stream.getAudioTracks().forEach((track) => (track.enabled = curAudio));
+        stream.getVideoTracks().forEach((track) => (track.enabled = curVideo));
+
+        setLocalStream(stream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        await webrtcManager.syncLocalStream(stream);
+
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = allDevices.filter((d) => d.kind === 'audioinput');
+        const audioOutputs = allDevices.filter((d) => d.kind === 'audiooutput');
+        const videoInputs = allDevices.filter((d) => d.kind === 'videoinput');
+        useAppStore.getState().setMediaDevices({ audioInputs, audioOutputs, videoInputs });
       } catch (error) {
         console.error('Failed to start preview:', error);
       }
@@ -60,135 +81,149 @@ export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }
 
     return () => {
       mounted = false;
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      if (currentStream && useAppStore.getState().isJoining) {
+        currentStream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [selectedAudioInput, selectedVideoInput, audioEnabled, videoEnabled, setLocalStream]);
+  }, [selectedAudioInput, selectedVideoInput, setLocalStream]);
 
-  // Load devices
   useEffect(() => {
-    if (devicesLoaded.current) return;
-    devicesLoaded.current = true;
-
-    const loadDevices = async () => {
-      try {
-        const devices = await api.getMediaDevices();
-        useAppStore.getState().setMediaDevices(devices);
-        
-        // Set defaults
-        if (devices.audioInputs.length > 0 && !selectedAudioInput) {
-          setSelectedAudioInput(devices.audioInputs[0].deviceId);
-        }
-        if (devices.videoInputs.length > 0 && !selectedVideoInput) {
-          setSelectedVideoInput(devices.videoInputs[0].deviceId);
-        }
-      } catch (error) {
-        console.error('Failed to load devices:', error);
-      }
-    };
-
-    loadDevices();
-  }, [selectedAudioInput, selectedVideoInput, setSelectedAudioInput, setSelectedVideoInput]);
+    if (videoRef.current && localStream) {
+      videoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
 
   const handleJoin = useCallback(() => {
-    onJoinComplete();
     setIsJoining(false);
+    onJoinComplete();
   }, [onJoinComplete, setIsJoining]);
+
+  const handleCancel = useCallback(async () => {
+    await webrtcManager.leaveMeeting();
+    useAppStore.getState().reset();
+  }, []);
 
   if (!currentUser) return null;
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-primary">
+    <div className="app-screen">
       {/* Top Bar */}
-      <header className="flex items-center justify-between p-4 border-b border-border-color bg-secondary/50 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-accent-primary flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polygon points="21 15 16 10 21 5" />
+      <header className="meeting-header">
+        <div className="meeting-header-left">
+          <div className="w-8 h-8 rounded-lg bg-accent-primary flex items-center justify-center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+              <polygon points="23 7 16 12 23 17 23 7" />
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
             </svg>
           </div>
           <div>
-            <h1 className="font-semibold text-primary">회의 참가</h1>
-            <p className="text-xs text-muted">{currentMeeting?.name || currentMeeting?.id}</p>
+            <h1 className="font-semibold text-sm text-primary">회의 입장 대기실 (장치 확인)</h1>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-secondary">{currentUser?.name} (나)</span>
-          <div className="w-8 h-8 rounded-full bg-tertiary flex items-center justify-center font-medium text-accent-primary">
-            {currentUser?.name?.charAt(0).toUpperCase()}
-          </div>
+        <div className="meeting-header-right">
+          <span className="text-xs text-secondary">{currentUser.name} (나)</span>
+          {currentUser.isHost && <span className="badge badge-host">👑 호스트</span>}
         </div>
       </header>
 
-      {/* Main Preview */}
-      <main className="flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-2xl">
-          {/* Video Preview */}
-          <div className="relative aspect-video bg-tertiary rounded-xl overflow-hidden border border-border-color mb-6">
-            {videoRef.current ? (
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-secondary">
-                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mb-3 animate-pulse">
-                  <polygon points="23 7 16 12 23 17 23 7" />
-                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                </svg>
-                <p>카메라 준비 중...</p>
+      {/* Scroll-safe Main Area with 2-Column Studio Grid */}
+      <main className="flex-1 overflow-y-auto p-6 flex items-center justify-center">
+        <div className="prejoin-grid w-full max-w-6xl">
+          {/* Left Column: Camera Preview */}
+          <div className="flex flex-col">
+            <div className="participant-tile" style={{ minHeight: '260px' }}>
+              <div className="participant-video-stage">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  style={{ transform: 'scaleX(-1)' }}
+                  className={`w-full h-full object-cover ${
+                    localStream && videoEnabled ? 'block' : 'hidden'
+                  }`}
+                />
+                {(!localStream || !videoEnabled) && (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-secondary">
+                    <div className="avatar avatar-xl mb-3">
+                      {currentUser.name.charAt(0).toUpperCase()}
+                    </div>
+                    <p className="text-sm">
+                      {!videoEnabled ? '카메라가 꺼져 있습니다' : '카메라 준비 중...'}
+                    </p>
+                  </div>
+                )}
+
+                <div className="absolute top-3 left-3 badge bg-black/60 text-white">
+                  미리보기
+                </div>
+              </div>
+
+              {/* Name Bar BELOW the preview video (never covering the face) */}
+              <div className="participant-footer-bar">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: audioEnabled ? '#10b981' : '#ef4444' }}
+                  />
+                  <span className="font-semibold text-xs text-primary">
+                    {currentUser.name} (나)
+                  </span>
+                  {currentUser.isHost && <span className="badge badge-host">👑 호스트</span>}
+                </div>
+                <span className="text-xs text-muted">좌우 미러링 적용됨</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: Controls & Join Action (Always visible in windowed mode) */}
+          <div className="card p-5 flex flex-col gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-primary">회의 입장 준비 완료</h2>
+              <p className="text-xs text-secondary mt-0.5">
+                입장 전 마이크와 카메라 상태를 확인하세요
+              </p>
+            </div>
+
+            {/* Meeting ID Box */}
+            {currentMeeting && (
+              <div className="flex items-center justify-between p-3 bg-tertiary rounded-lg border border-border-color">
+                <div>
+                  <span className="text-xs text-muted block">회의 ID (초대 코드)</span>
+                  <code className="text-base font-mono font-bold text-primary tracking-widest select-all">
+                    {currentMeeting.id}
+                  </code>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(currentMeeting.id);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  className="btn btn-secondary py-1.5 px-3 text-xs"
+                >
+                  {copied ? '✓ 복사됨' : '회의 ID 복사'}
+                </button>
               </div>
             )}
-            
-            {/* Preview badge */}
-            <div className="absolute top-3 left-3 px-2 py-1 bg-black/60 backdrop-blur text-xs text-secondary rounded badge">
-              미리보기
-            </div>
 
-            {/* Mirror indicator */}
-            <div className="absolute bottom-3 right-3 flex items-center gap-1 px-2 py-1 bg-black/60 backdrop-blur text-xs text-secondary rounded">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M20 12h-4M4 12h4M10 4v16M10 4l-4 4M10 20l-4-4" />
-              </svg>
-              <span>미러링</span>
-            </div>
-          </div>
-
-          {/* User Info */}
-          <div className="flex items-center justify-center gap-4 mb-6 p-4 bg-secondary rounded-lg border border-border-color">
-            <div className="w-16 h-16 rounded-full bg-tertiary flex items-center justify-center font-bold text-xl text-accent-primary">
-              {currentUser?.name?.charAt(0).toUpperCase()}
-            </div>
-            <div className="text-center">
-              <p className="font-semibold text-primary">{currentUser?.name}</p>
-              <p className="text-sm text-muted">회의 참가자로 입장합니다</p>
-            </div>
-          </div>
-
-          {/* Audio/Video Controls */}
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-secondary rounded-lg border border-border-color p-4">
-              <label className="block text-sm font-medium text-secondary mb-3 flex items-center gap-2">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M11 5L6 9H2v6h4l5 4V5z" />
-                  <line x1="19" y1="9" x2="19" y2="15" />
-                  <line x1="23" y1="9" x2="23" y2="15" />
-                </svg>
-                마이크
+            {/* Microphone Selector */}
+            <div className="p-3 bg-secondary rounded-lg border border-border-color">
+              <label className="text-xs font-medium text-secondary mb-2 flex items-center justify-between">
+                <span>🎤 마이크 설정</span>
+                <span className={audioEnabled ? 'text-green-400' : 'text-red-400'}>
+                  {audioEnabled ? '마이크 켜짐' : '음소거됨'}
+                </span>
               </label>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
                 <select
                   value={selectedAudioInput || 'default'}
                   onChange={(e) => setSelectedAudioInput(e.target.value)}
-                  className="input flex-1 mr-2"
+                  className="input flex-1 text-xs py-2"
                 >
-                  <option value="default">기본 장치</option>
-                  {audioInputDevices.map(device => (
+                  <option value="default">기본 마이크 장치</option>
+                  {audioInputDevices.map((device) => (
                     <option key={device.deviceId} value={device.deviceId}>
                       {device.label || `마이크 ${device.deviceId.slice(0, 8)}`}
                     </option>
@@ -196,47 +231,36 @@ export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }
                 </select>
                 <button
                   type="button"
-                  onClick={() => setAudioEnabled(!audioEnabled)}
-                  className={`btn btn-icon p-2 rounded-lg transition ${
+                  onClick={() => {
+                    const next = !audioEnabled;
+                    setAudioEnabled(next);
+                    webrtcManager.broadcastUserUpdate({ audioEnabled: next });
+                  }}
+                  className={`btn py-2 px-3 text-xs ${
                     audioEnabled ? 'btn-secondary' : 'btn-danger'
                   }`}
-                  aria-label={audioEnabled ? '마이크 끄기' : '마이크 켜기'}
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    {audioEnabled ? (
-                      <>
-                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                        <line x1="12" y1="19" x2="12" y2="22" />
-                        <line x1="8" y1="22" x2="16" y2="22" />
-                      </>
-                    ) : (
-                      <>
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                        <line x1="17" y1="17" x2="7" y2="7" />
-                      </>
-                    )}
-                  </svg>
+                  {audioEnabled ? '끄기' : '켜기'}
                 </button>
               </div>
             </div>
 
-            <div className="bg-secondary rounded-lg border border-border-color p-4">
-              <label className="block text-sm font-medium text-secondary mb-3 flex items-center gap-2">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polygon points="23 7 16 12 23 17 23 7" />
-                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                </svg>
-                카메라
+            {/* Camera Selector */}
+            <div className="p-3 bg-secondary rounded-lg border border-border-color">
+              <label className="text-xs font-medium text-secondary mb-2 flex items-center justify-between">
+                <span>📹 카메라 설정</span>
+                <span className={videoEnabled ? 'text-green-400' : 'text-red-400'}>
+                  {videoEnabled ? '카메라 켜짐' : '카메라 꺼짐'}
+                </span>
               </label>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
                 <select
                   value={selectedVideoInput || 'default'}
                   onChange={(e) => setSelectedVideoInput(e.target.value)}
-                  className="input flex-1 mr-2"
+                  className="input flex-1 text-xs py-2"
                 >
-                  <option value="default">기본 장치</option>
-                  {videoInputDevices.map(device => (
+                  <option value="default">기본 카메라 장치</option>
+                  {videoInputDevices.map((device) => (
                     <option key={device.deviceId} value={device.deviceId}>
                       {device.label || `카메라 ${device.deviceId.slice(0, 8)}`}
                     </option>
@@ -244,61 +268,38 @@ export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }
                 </select>
                 <button
                   type="button"
-                  onClick={() => setVideoEnabled(!videoEnabled)}
-                  className={`btn btn-icon p-2 rounded-lg transition ${
+                  onClick={() => {
+                    const next = !videoEnabled;
+                    setVideoEnabled(next);
+                    webrtcManager.broadcastUserUpdate({ videoEnabled: next });
+                  }}
+                  className={`btn py-2 px-3 text-xs ${
                     videoEnabled ? 'btn-secondary' : 'btn-danger'
                   }`}
-                  aria-label={videoEnabled ? '카메라 끄기' : '카메라 켜기'}
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    {videoEnabled ? (
-                      <>
-                        <polygon points="23 7 16 12 23 17 23 7" />
-                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                      </>
-                    ) : (
-                      <>
-                        <polygon points="23 7 16 12 23 17 23 7" />
-                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                        <line x1="1" y1="5" x2="23" y2="19" />
-                      </>
-                    )}
-                  </svg>
+                  {videoEnabled ? '끄기' : '켜기'}
                 </button>
               </div>
             </div>
-          </div>
 
-          {/* Meeting ID Display */}
-          <div className="bg-secondary rounded-lg border border-border-color p-4 mb-6">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-secondary">회의 ID</span>
-              <div className="flex items-center gap-2">
-                <code className="bg-tertiary px-3 py-1 rounded font-mono text-sm text-primary tracking-wider select-all">
-                  {currentMeeting?.id}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => navigator.clipboard.writeText(currentMeeting?.id || '')}
-                  className="btn btn-icon btn-ghost"
-                  aria-label="회의 ID 복사"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                  </svg>
-                </button>
-              </div>
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleJoin}
+                className="btn btn-primary flex-1 py-3 text-base font-semibold"
+              >
+                지금 회의 입장하기
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="btn btn-secondary py-3 px-4 text-sm"
+              >
+                취소
+              </button>
             </div>
           </div>
-
-          {/* Join Button */}
-          <button
-            onClick={handleJoin}
-            className="btn btn-primary w-full py-4 text-lg font-semibold"
-          >
-            회의 참가
-          </button>
         </div>
       </main>
     </div>

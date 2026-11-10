@@ -8,6 +8,7 @@ interface VideoGridProps {
   currentUserId: string;
   localStream: MediaStream | null;
   screenStream: MediaStream | null;
+  remoteStreams: Record<string, MediaStream>;
   isScreenSharing: boolean;
 }
 
@@ -16,6 +17,7 @@ export function VideoGrid({
   currentUserId,
   localStream,
   screenStream,
+  remoteStreams,
   isScreenSharing,
 }: VideoGridProps) {
   const gridRef = useRef<HTMLDivElement>(null);
@@ -54,23 +56,23 @@ export function VideoGrid({
       aria-label="비디오 그리드"
     >
       {/* Screen Share View (if someone else is sharing) */}
-      {screenSharer && screenStream && (
+      {screenSharer && (
         <ParticipantVideo
           key={`screen-${screenSharer.id}`}
           user={screenSharer}
-          stream={screenStream}
+          stream={remoteStreams[screenSharer.id] || screenStream}
           isLocal={false}
           isScreenShare={true}
           isLarge={true}
         />
       )}
 
-      {/* Local User (always first if video enabled) */}
-      {localStream && (
+      {/* Local User */}
+      {participants.some(p => p.id === currentUserId) && (
         <ParticipantVideo
           key={`local-${currentUserId}`}
           user={participants.find(p => p.id === currentUserId)!}
-          stream={localStream}
+          stream={isScreenSharing && screenStream ? screenStream : localStream}
           isLocal={true}
           isScreenShare={isScreenSharing}
         />
@@ -87,7 +89,7 @@ export function VideoGrid({
           <ParticipantVideo
             key={participant.id}
             user={participant}
-            stream={null} // Remote streams would be attached via WebRTC
+            stream={remoteStreams[participant.id] || null}
             isLocal={false}
             isScreenShare={participant.screenSharing}
           />
@@ -105,7 +107,7 @@ export function VideoGrid({
           <ParticipantVideo
             key={`avatar-${participant.id}`}
             user={participant}
-            stream={null}
+            stream={remoteStreams[participant.id] || null}
             isLocal={false}
             isScreenShare={false}
           />

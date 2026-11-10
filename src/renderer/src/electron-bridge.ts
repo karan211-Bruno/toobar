@@ -1,5 +1,38 @@
 // Electron API Bridge - Type-safe wrapper for preload exposed APIs
 
+export interface DeepLinkInvite {
+  meetingId: string;
+  serverUrl?: string;
+  userName?: string;
+  password?: string;
+  autoJoin: boolean;
+}
+
+export interface UpdateManifest {
+  version: string;
+  buildId: string;
+  buildTimestamp: number;
+  notes?: string;
+  hash: string;
+}
+
+export interface UpdateStatusInfo {
+  currentManifest: UpdateManifest;
+  latestManifest: UpdateManifest | null;
+  hasUpdate: boolean;
+  updateReadyToApply: boolean;
+  autoUpdate: boolean;
+  lastCheckedAt: number | null;
+}
+
+export interface UpdateEventPayload {
+  type: 'checking' | 'update-available' | 'downloading' | 'update-downloaded' | 'up-to-date' | 'applied' | 'error';
+  manifest?: UpdateManifest;
+  progress?: number;
+  autoUpdate?: boolean;
+  message?: string;
+}
+
 interface ElectronAPI {
   getAppVersion: () => Promise<string>;
   getPlatform: () => Promise<string>;
@@ -26,6 +59,21 @@ interface ElectronAPI {
   showSaveDialog: (options: Electron.SaveDialogOptions) => Promise<Electron.SaveDialogReturnValue>;
   showOpenDialog: (options: Electron.OpenDialogOptions) => Promise<Electron.OpenDialogReturnValue>;
   onMenuAction: (channel: string, listener: () => void) => () => void;
+  consumeDeepLink?: () => Promise<DeepLinkInvite | null>;
+  onDeepLinkInvite?: (listener: (invite: DeepLinkInvite) => void) => () => void;
+  setWindowMeeting?: (meetingId: string | null) => Promise<void>;
+  openDeepLink?: (url: string) => Promise<{ success: boolean }>;
+  getNetworkInfo?: () => Promise<{ localIp: string; defaultUserName: string }>;
+  getUpdateStatus?: () => Promise<UpdateStatusInfo>;
+  checkForUpdates?: (customServerUrl?: string) => Promise<{
+    hasUpdate: boolean;
+    manifest?: UpdateManifest;
+    applied?: boolean;
+    message: string;
+  }>;
+  applyUpdateNow?: (restartProcess?: boolean) => Promise<{ success: boolean }>;
+  setAutoUpdateEnabled?: (enabled: boolean) => Promise<{ autoUpdate: boolean }>;
+  onUpdateEvent?: (listener: (event: UpdateEventPayload) => void) => () => void;
 }
 
 interface PlatformInfo {
@@ -127,6 +175,23 @@ export const mockElectronAPI: ElectronAPI = {
   showSaveDialog: async () => ({ canceled: true, filePath: '' }),
   showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
   onMenuAction: () => () => {},
+  consumeDeepLink: async () => null,
+  onDeepLinkInvite: () => () => {},
+  setWindowMeeting: async () => {},
+  openDeepLink: async () => ({ success: true }),
+  getNetworkInfo: async () => ({ localIp: '127.0.0.1', defaultUserName: '참가자' }),
+  getUpdateStatus: async () => ({
+    currentManifest: { version: '1.0.0', buildId: 'dev', buildTimestamp: Date.now(), hash: 'dev' },
+    latestManifest: null,
+    hasUpdate: false,
+    updateReadyToApply: false,
+    autoUpdate: true,
+    lastCheckedAt: Date.now(),
+  }),
+  checkForUpdates: async () => ({ hasUpdate: false, message: '현재 최신 버전입니다.' }),
+  applyUpdateNow: async () => ({ success: true }),
+  setAutoUpdateEnabled: async (enabled) => ({ autoUpdate: enabled }),
+  onUpdateEvent: () => () => {},
 };
 
 // Use mock API when not in Electron

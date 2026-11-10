@@ -1,5 +1,7 @@
 // Chat Panel
 import React, { useRef, useEffect, useState } from 'react';
+import { useAppStore } from '../store';
+import { webrtcManager } from '../webrtc';
 
 interface ChatPanelProps {
   messages: Array<{
@@ -22,6 +24,8 @@ export function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [newMessage, setNewMessage] = useState('');
   const [sendTo, setSendTo] = useState<'everyone' | string>('everyone');
+  const participants = useAppStore((s) => s.currentMeeting?.participants || []);
+  const otherParticipants = participants.filter((p) => p.id !== currentUserId);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -32,8 +36,7 @@ export function ChatPanel({
     e.preventDefault();
     if (!newMessage.trim()) return;
 
-    // In real app, this would send via signaling
-    console.log('Sending message:', newMessage, 'to:', sendTo);
+    webrtcManager.sendChatMessage(newMessage.trim(), sendTo);
     setNewMessage('');
   };
 
@@ -65,7 +68,11 @@ export function ChatPanel({
           className="input w-full text-sm py-2"
         >
           <option value="everyone">모든 참가자</option>
-          {/* Private message options would be added here */}
+          {otherParticipants.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} (비공개)
+            </option>
+          ))}
         </select>
       </div>
 
@@ -147,7 +154,7 @@ export function ChatPanel({
             placeholder={sendTo === 'everyone' ? '모든 참가자에게 메시지 보내기...' : `비공개 메시지...`}
             className="input flex-1"
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 handleSend(e);
               }

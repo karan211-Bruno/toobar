@@ -61,6 +61,11 @@ function getOrCreateMeeting(meetingId: string, hostId: string): Meeting {
 }
 
 function addUserToMeeting(meeting: Meeting, user: User): void {
+  const baseName = user.name.trim() || '참가자';
+  const nameExists = meeting.participants.some((p) => p.name === baseName);
+  if (nameExists) {
+    user.name = `${baseName} (${meeting.participants.length + 1})`;
+  }
   meeting.participants.push(user);
   // First user becomes host
   if (meeting.participants.length === 1) {
@@ -139,6 +144,7 @@ const io = new Server(WS_PORT, {
     origin: '*',
     methods: ['GET', 'POST'],
   },
+  maxHttpBufferSize: 50 * 1024 * 1024,
   pingTimeout: 60000,
   pingInterval: 25000,
 });
@@ -163,9 +169,9 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Create user
+      // Create user (use socket.id as user.id for consistent signaling & WebRTC routing)
       const user: User = {
-        id: uuidv4(),
+        id: socket.id,
         name: userName,
         audioEnabled,
         videoEnabled,
@@ -275,20 +281,41 @@ io.on('connection', (socket) => {
 
       case 'chat': {
         const chatPayload = message.payload as ChatPayload;
-        // Broadcast chat message
-        io.to(meetingId).emit('signaling', {
-          type: 'chat',
-          payload: { message: chatPayload.message, from: userSocket.socketId },
+        const sender = getUserInMeeting(meetingId, userSocket.socketId);
+        const fromName = sender?.name || '참가자';
+        const chatId = uuidv4();
+        const timestamp = Date.now();
+        const isPrivate = Boolean(chatPayload.to && chatPayload.to !== 'everyone');
+
+        const outgoingMessage = {
+          type: 'chat' as SignalingMessageType,
+          payload: {
+            id: chatId,
+            message: chatPayload.message,
+            from: userSocket.socketId,
+            fromName,
+            to: isPrivate ? chatPayload.to : undefined,
+            isPrivate,
+            timestamp,
+          },
           from: userSocket.socketId,
+          to: isPrivate ? chatPayload.to : undefined,
           meetingId,
-          timestamp: Date.now(),
-        });
+          timestamp,
+        };
+
+        if (isPrivate && chatPayload.to) {
+          io.to(chatPayload.to).emit('signaling', outgoingMessage);
+          socket.emit('signaling', outgoingMessage);
+        } else {
+          io.to(meetingId).emit('signaling', outgoingMessage);
+        }
         callback?.({ success: true });
         break;
       }
 
       case 'screen-share-start': {
-        // Notify others that user started screen sharing
+        updateUserInMeeting(meetingId, userSocket.socketId, { screenSharing: true });
         socket.to(meetingId).emit('signaling', {
           type: 'screen-share-start',
           payload: { userId: userSocket.socketId },
@@ -301,9 +328,23 @@ io.on('connection', (socket) => {
       }
 
       case 'screen-share-stop': {
+        updateUserInMeeting(meetingId, userSocket.socketId, { screenSharing: false });
         socket.to(meetingId).emit('signaling', {
           type: 'screen-share-stop',
           payload: { userId: userSocket.socketId },
+          from: userSocket.socketId,
+          meetingId,
+          timestamp: Date.now(),
+        });
+        callback?.({ success: true });
+        break;
+      }
+
+      case 'share-state':
+      case 'whiteboard-draw':
+      case 'whiteboard-clear': {
+        socket.to(meetingId).emit('signaling', {
+          ...message,
           from: userSocket.socketId,
           meetingId,
           timestamp: Date.now(),
@@ -355,19 +396,43 @@ io.on('connection', (socket) => {
         break;
       }
 
+      case 'transfer-host': {
+        const meeting = meetings.get(meetingId);
+        const requester = getUserInMeeting(meetingId, userSocket.socketId);
+        const { newHostId } = message.payload as { newHostId: string };
+        if (meeting && requester?.isHost && newHostId) {
+          meeting.hostId = newHostId;
+          meeting.participants.forEach((p) => {
+            p.isHost = p.id === newHostId;
+          });
+          io.to(meetingId).emit('signaling', {
+            type: 'host-changed',
+            payload: { newHostId },
+            from: 'server',
+            meetingId,
+            timestamp: Date.now(),
+          });
+        }
+        callback?.({ success: true });
+        break;
+      }
+
       default:
         callback?.({ success: false, error: { code: 'UNKNOWN_MESSAGE', message: '알 수 없는 메시지 타입' } });
     }
   });
 
-  socket.on('disconnect', () => {
+  const handleUserLeave = () => {
     const userSocket = userSockets.get(socket.id);
     if (userSocket) {
       const { meetingId, socketId } = userSocket;
+      const meeting = meetings.get(meetingId);
+      const wasHost = meeting?.hostId === socketId;
       const removedUser = removeUserFromMeeting(meetingId, socketId);
+      socket.leave(meetingId);
+      userSockets.delete(socket.id);
 
       if (removedUser) {
-        // Notify others
         const userLeftPayload: UserLeftPayload = { userId: socketId };
         socket.to(meetingId).emit('signaling', {
           type: 'user-left',
@@ -377,11 +442,31 @@ io.on('connection', (socket) => {
           timestamp: Date.now(),
         });
 
+        // If host was transferred, notify remaining participants
+        const updatedMeeting = meetings.get(meetingId);
+        if (wasHost && updatedMeeting && updatedMeeting.participants.length > 0) {
+          const newHost = updatedMeeting.participants[0];
+          io.to(meetingId).emit('signaling', {
+            type: 'user-updated',
+            payload: { userId: newHost.id, updates: { isHost: true } },
+            from: 'server',
+            meetingId,
+            timestamp: Date.now(),
+          });
+        }
+
         console.log(`User ${removedUser.name} (${socketId}) left meeting ${meetingId}`);
       }
-
-      userSockets.delete(socket.id);
     }
+  };
+
+  socket.on('leave', (_payload, callback) => {
+    handleUserLeave();
+    callback?.({ success: true });
+  });
+
+  socket.on('disconnect', () => {
+    handleUserLeave();
     console.log(`Client disconnected: ${socket.id}`);
   });
 

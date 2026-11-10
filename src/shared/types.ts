@@ -28,6 +28,7 @@ export interface Meeting {
   id: string;
   name: string;
   hostId: string;
+  hostUpdatedAt?: number;
   participants: User[];
   createdAt: number;
   settings: MeetingSettings;
@@ -64,11 +65,51 @@ export type SignalingMessageType =
   | 'chat'
   | 'screen-share-start'
   | 'screen-share-stop'
+  | 'share-state'
+  | 'whiteboard-draw'
+  | 'whiteboard-clear'
   | 'recording-start'
   | 'recording-stop'
   | 'kick-user'
   | 'mute-user'
+  | 'transfer-host'
+  | 'host-changed'
+  | 'pdf-chunk'
   | 'error';
+
+export type ShareMode = 'none' | 'screen' | 'whiteboard' | 'presentation' | 'pdf' | 'video' | 'audio';
+
+export interface WhiteboardStroke {
+  id: string;
+  tool: 'pen' | 'highlighter' | 'eraser' | 'line' | 'rect' | 'circle' | 'text';
+  color: string;
+  size: number;
+  points: Array<{ x: number; y: number }>;
+  text?: string;
+}
+
+export interface PresentationSlide {
+  id: string;
+  title: string;
+  content?: string;
+  imageUrl?: string;
+  background?: string;
+}
+
+export interface ShareSessionState {
+  mode: ShareMode;
+  ownerId: string;
+  ownerName: string;
+  title?: string;
+  slides?: PresentationSlide[];
+  currentSlideIndex?: number;
+  pdfDataUrl?: string;
+  pdfId?: string;
+  hostIp?: string;
+  pdfPage?: number;
+  mediaName?: string;
+  mediaType?: 'video' | 'audio';
+}
 
 export interface JoinPayload {
   userName: string;

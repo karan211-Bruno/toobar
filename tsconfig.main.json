@@ -4,7 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "lib": ["ES2022", "DOM"],
-    "outDir": "dist/main",
+    "outDir": "dist",
     "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
@@ -19,6 +19,7 @@
       "@shared/*": ["shared/*"]
     }
   },
+  "files": ["src/main/index.ts", "src/main/preload.ts", "src/shared/types.ts"],
   "include": ["src/main/**/*", "src/shared/**/*"],
   "exclude": ["node_modules", "dist"]
 }
