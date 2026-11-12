@@ -24,7 +24,6 @@ mkdirSync(distElectron, { recursive: true });
 const candidates = [
   join(distElectron, 'linux-unpacked'),
   '/tmp/toobar-linux-build/linux-unpacked',
-  '/tmp/toobar-linux-build/data/opt/ZoomClone',
   '/tmp/toobar-linux-build/data/opt/Toobar',
 ];
 const sourceUnpacked = candidates.find((p) => existsSync(join(p, 'resources/app.asar')));
@@ -45,14 +44,11 @@ if (existsSync(distAsar) && cleanLinuxUnpacked !== join(distElectron, 'linux-unp
   cpSync(distAsar, join(cleanLinuxUnpacked, 'resources/app.asar'));
 }
 
-// Rename ELF binary to toobar-bin and create --no-sandbox wrapper as 'toobar' (and 'zoom-clone' symlink)
-const oldBinZoom = join(cleanLinuxUnpacked, 'zoom-clone');
+// Ensure ELF binary is named toobar-bin and create --no-sandbox wrapper as 'toobar'
 const toobarBin = join(cleanLinuxUnpacked, 'toobar-bin');
 const toobarWrapper = join(cleanLinuxUnpacked, 'toobar');
 
-if (existsSync(oldBinZoom) && !existsSync(toobarBin)) {
-  renameSync(oldBinZoom, toobarBin);
-} else if (existsSync(toobarWrapper) && !existsSync(toobarBin)) {
+if (existsSync(toobarWrapper) && !existsSync(toobarBin)) {
   renameSync(toobarWrapper, toobarBin);
 }
 
@@ -102,14 +98,13 @@ cpSync(
 cpSync(join(projectDir, 'public/icon.png'), join(dataDir, 'usr/share/pixmaps/toobar.png'));
 
 symlinkSync('/opt/Toobar/toobar', join(dataDir, 'usr/bin/toobar'));
-symlinkSync('/opt/Toobar/toobar', join(dataDir, 'usr/bin/zoom-clone'));
 
 writeFileSync(
   join(dataDir, 'usr/share/applications/toobar.desktop'),
   `[Desktop Entry]
 Name=Toobar
 GenericName=Video Conferencing
-Comment=Toobar - 화상 회의 프로그램 (Electron + WebRTC)
+Comment=Toobar - 화상 회의 · 문자 · 파일 공유 프로그램
 Exec=/opt/Toobar/toobar %U
 TryExec=/opt/Toobar/toobar
 Terminal=false
@@ -117,7 +112,7 @@ Type=Application
 Icon=toobar
 StartupWMClass=Toobar
 Categories=Network;AudioVideo;VideoConference;
-MimeType=x-scheme-handler/toobar;x-scheme-handler/zoomclone;
+MimeType=x-scheme-handler/toobar;
 `
 );
 
@@ -141,12 +136,12 @@ writeFileSync(
   postinstPath,
   `#!/bin/sh
 set -e
+rm -rf /opt/ZoomClone /usr/bin/zoom-clone /usr/share/applications/zoom-clone.desktop 2>/dev/null || true
 chmod 755 /opt/Toobar/toobar /opt/Toobar/toobar-bin 2>/dev/null || true
 chmod 4755 /opt/Toobar/chrome-sandbox 2>/dev/null || true
 update-desktop-database /usr/share/applications 2>/dev/null || true
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 xdg-mime default toobar.desktop x-scheme-handler/toobar 2>/dev/null || true
-xdg-mime default toobar.desktop x-scheme-handler/zoomclone 2>/dev/null || true
 exit 0
 `,
   { mode: 0o755 }

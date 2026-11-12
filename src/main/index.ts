@@ -246,16 +246,14 @@ const windowMeetingMap = new Map<number, string | null>();
 const pendingDeepLinkByWindow = new Map<number, DeepLinkInvite>();
 let startupDeepLink: DeepLinkInvite | null = null;
 
-// Register toobar:// and zoomclone:// custom protocols with the OS
+// Register toobar:// custom protocol with the OS
 try {
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
       app.setAsDefaultProtocolClient('toobar', process.execPath, [resolve(process.argv[1])]);
-      app.setAsDefaultProtocolClient('zoomclone', process.execPath, [resolve(process.argv[1])]);
     }
   } else {
     app.setAsDefaultProtocolClient('toobar');
-    app.setAsDefaultProtocolClient('zoomclone');
   }
 } catch (err) {
   console.warn('[Protocol] Failed to register protocol:', err);
@@ -288,7 +286,7 @@ function getDefaultUserName(): string {
 }
 
 function isCustomDeepLink(url: string): boolean {
-  return url.startsWith('toobar://') || url.startsWith('zoomclone://');
+  return url.startsWith('toobar://');
 }
 
 function parseDeepLinkUrl(rawUrl: string): DeepLinkInvite | null {
@@ -306,7 +304,7 @@ function parseDeepLinkUrl(rawUrl: string): DeepLinkInvite | null {
         parsed.searchParams.get('room') ||
         parsed.searchParams.get('id') ||
         '';
-      if (!meetingId && (parsed.protocol === 'toobar:' || parsed.protocol === 'zoomclone:')) {
+      if (!meetingId && parsed.protocol === 'toobar:') {
         const hostPart = parsed.hostname && parsed.hostname !== 'join' ? parsed.hostname : '';
         const pathPart = parsed.pathname.replace(/^\/+/, '');
         meetingId = pathPart || hostPart;
@@ -1008,7 +1006,6 @@ async function triggerManualOrAutoUpdateCheck(options?: {
 
   // 1. Check local workspace build directory (if running on dev/build PC or shared folder)
   const candidateBundlePaths = [
-    '/Users/newborn/Documents/기본 프로젝트/zoom-clone/dist/update-bundle.json',
     join(process.cwd(), 'dist/update-bundle.json'),
   ];
   for (const p of candidateBundlePaths) {
@@ -1145,7 +1142,7 @@ async function startSignalingServer(): Promise<void> {
   const HTTP_PORT = 3001;
   const WS_PORT = 3002;
   const UDP_BRIDGE_PORT = 41234;
-  const MQTT_TOPIC = 'zoomclone/v2/global_bus';
+  const MQTT_TOPIC = 'toobar/v2/global_bus';
   const nodeId = uuidv4();
 
   const meetings = new Map<string, Meeting>();

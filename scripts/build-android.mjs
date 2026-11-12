@@ -14,6 +14,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
 const pkgJson = JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
 const version = pkgJson.version || '1.1.0';
+const [vMaj = 1, vMin = 1, vPat = 0] = version.split('.').map((n) => parseInt(n, 10) || 0);
+const versionCode = vMaj * 100 + vMin * 10 + vPat;
 
 const JAVA_HOME = '/Users/newborn/Library/Java/JavaVirtualMachines/jbr-17.0.14/Contents/Home';
 const ANDROID_SDK = '/Users/newborn/Library/Android/sdk';
@@ -90,7 +92,7 @@ writeFileSync(
   `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.toobar.app"
-    android:versionCode="111"
+    android:versionCode="${versionCode}"
     android:versionName="${version}">
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -133,7 +135,6 @@ writeFileSync(
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="toobar" />
-                <data android:scheme="zoomclone" />
             </intent-filter>
         </activity>
 

@@ -307,7 +307,7 @@ export const useAppStore = create<AppState>()(
         },
       }),
       {
-        name: 'zoom-clone-store',
+        name: 'toobar-store',
         partialize: (state) => ({
           selectedAudioInput: state.selectedAudioInput,
           selectedAudioOutput: state.selectedAudioOutput,

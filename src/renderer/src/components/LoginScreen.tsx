@@ -15,15 +15,14 @@ function parseInviteInput(raw: string): {
   const trimmed = raw.trim();
   if (
     trimmed.includes('meetingId=') ||
-    trimmed.startsWith('toobar://') ||
-    trimmed.startsWith('zoomclone://')
+    trimmed.startsWith('toobar://')
   ) {
     try {
       const queryPart = trimmed.split('?')[1] || '';
       const params = new URLSearchParams(queryPart.split(/\s/)[0]);
       let id = params.get('meetingId') || params.get('room') || '';
-      if (!id && (trimmed.startsWith('toobar://') || trimmed.startsWith('zoomclone://'))) {
-        id = trimmed.replace(/^(toobar|zoomclone):\/\/(join\/?)?/i, '').split(/[/?&\s]/)[0] || '';
+      if (!id && trimmed.startsWith('toobar://')) {
+        id = trimmed.replace(/^toobar:\/\/(join\/?)?/i, '').split(/[/?&\s]/)[0] || '';
       }
       const srv = params.get('server') || undefined;
       if (id) {
@@ -57,7 +56,7 @@ export function LoginScreen({
   onOpenUpdateModal?: () => void;
 }) {
   const [userName, setUserName] = useState(
-    () => localStorage.getItem('zoomclone_user_name') || ''
+    () => localStorage.getItem('toobar_user_name') || ''
   );
   const [meetingId, setMeetingId] = useState('');
   const [password, setPassword] = useState('');
@@ -90,7 +89,7 @@ export function LoginScreen({
       api
         .getNetworkInfo()
         .then((info) => {
-          if (info?.defaultUserName && !localStorage.getItem('zoomclone_user_name')) {
+          if (info?.defaultUserName && !localStorage.getItem('toobar_user_name')) {
             setUserName(info.defaultUserName);
             cloudBus.setMyName(info.defaultUserName);
           }
@@ -102,8 +101,8 @@ export function LoginScreen({
   const connectDirectlyToMeeting = useCallback(
     async (targetMeetingId: string, targetServerUrl?: string) => {
       const resolvedName =
-        userName.trim() || localStorage.getItem('zoomclone_user_name')?.trim() || '참가자';
-      localStorage.setItem('zoomclone_user_name', resolvedName);
+        userName.trim() || localStorage.getItem('toobar_user_name')?.trim() || '참가자';
+      localStorage.setItem('toobar_user_name', resolvedName);
       cloudBus.setMyName(resolvedName);
       if (targetServerUrl) {
         setSignalingUrl(targetServerUrl);
@@ -172,7 +171,7 @@ export function LoginScreen({
         return;
       }
 
-      localStorage.setItem('zoomclone_user_name', userName.trim());
+      localStorage.setItem('toobar_user_name', userName.trim());
       cloudBus.setMyName(userName.trim());
       setIsLoading(true);
       setError(null);
@@ -225,7 +224,7 @@ export function LoginScreen({
         return;
       }
 
-      localStorage.setItem('zoomclone_user_name', userName.trim());
+      localStorage.setItem('toobar_user_name', userName.trim());
       cloudBus.setMyName(userName.trim());
       setIsLoading(true);
       setError(null);
@@ -386,7 +385,7 @@ export function LoginScreen({
                 value={userName}
                 onChange={(e) => {
                   setUserName(e.target.value);
-                  localStorage.setItem('zoomclone_user_name', e.target.value);
+                  localStorage.setItem('toobar_user_name', e.target.value);
                   cloudBus.setMyName(e.target.value);
                 }}
                 placeholder="대화방에 표시될 이름"
@@ -524,7 +523,7 @@ export function LoginScreen({
         {/* Footer */}
         <div className="mt-5 pt-4 border-t border-border-color flex items-center justify-between text-xs text-muted flex-wrap gap-2">
           <div>
-            <p className="font-medium text-secondary">Toobar v1.1.1</p>
+            <p className="font-medium text-secondary">Toobar v1.1.2</p>
             <p className="mt-0.5">
               Mac · iPhone · iPad · Windows · Ubuntu · Android 통합 지원
             </p>

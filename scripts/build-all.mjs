@@ -154,15 +154,8 @@ function updateInfoPlistHash(plistPath, newHash) {
       );
     }
     if (!xml.includes('<string>toobar</string>')) {
-      if (xml.includes('<string>zoomclone</string>')) {
-        xml = xml.replace(
-          '<string>zoomclone</string>',
-          '<string>toobar</string>\n\t\t\t\t<string>zoomclone</string>'
-        );
-      } else {
-        const urlTypesBlock = `\t<key>CFBundleURLTypes</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>CFBundleURLName</key>\n\t\t\t<string>Toobar Meeting Link</string>\n\t\t\t<key>CFBundleURLSchemes</key>\n\t\t\t<array>\n\t\t\t\t<string>toobar</string>\n\t\t\t\t<string>zoomclone</string>\n\t\t\t</array>\n\t\t</dict>\n\t</array>\n</dict>`;
-        xml = xml.replace(/<\/dict>\s*<\/plist>\s*$/, `${urlTypesBlock}\n</plist>\n`);
-      }
+      const urlTypesBlock = `\t<key>CFBundleURLTypes</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>CFBundleURLName</key>\n\t\t\t<string>Toobar Meeting Link</string>\n\t\t\t<key>CFBundleURLSchemes</key>\n\t\t\t<array>\n\t\t\t\t<string>toobar</string>\n\t\t\t</array>\n\t\t</dict>\n\t</array>\n</dict>`;
+      xml = xml.replace(/<\/dict>\s*<\/plist>\s*$/, `${urlTypesBlock}\n</plist>\n`);
     }
     writeFileSync(plistPath, xml, 'utf8');
   } catch (err) {
@@ -258,7 +251,7 @@ function generateOtaUpdateBundle() {
     buildId,
     buildTimestamp: now,
     releaseNotes:
-      'v1.1.1: 전 플랫폼(맥북·아이폰·아이패드·윈도우·우분투·안드로이드) 실행 오류 수정 및 모바일 PWA 즉시 실행 지원',
+      'v1.1.2: 내부 명칭·프로토콜·저장소를 100% Toobar로 완전 일원화 및 구버전 자동 정리',
     hash: contentHash,
   };
 
@@ -305,7 +298,7 @@ function publishToRunningInstance(bundlePayload) {
           res.resume();
           if (res.statusCode === 200) {
             console.log(
-              '⚡ Live OTA Update automatically pushed to running ZoomClone instance & P2P peers!'
+              '⚡ Live OTA Update automatically pushed to running Toobar instance & P2P peers!'
             );
           }
           resolvePub();

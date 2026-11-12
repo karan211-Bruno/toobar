@@ -337,7 +337,6 @@ console.log(`Generated genuine Windows .ico: ${icoOut} (${icoBuffer.length} byte
 const macAppIcnsTargets = [
   join(rootDir, 'dist-electron/mac-arm64/Toobar.app/Contents/Resources/icon.icns'),
   '/Applications/Toobar.app/Contents/Resources/icon.icns',
-  '/Applications/ZoomClone.app/Contents/Resources/icon.icns',
 ];
 
 for (const target of macAppIcnsTargets) {

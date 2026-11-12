@@ -105,7 +105,7 @@ export function App() {
     }
   }, [setLocalStream, setIsConnected, setConnectionError]);
 
-  // Auto-join directly into MeetingScreen when launched via invite link (toobar://, zoomclone:// or ?meetingId=...)
+  // Auto-join directly into MeetingScreen when launched via invite link (toobar:// or ?meetingId=...)
   const autoJoinFromInvite = useCallback(async (invite: DeepLinkInvite) => {
     const targetMeetingId = invite?.meetingId?.trim().toUpperCase();
     if (!targetMeetingId || autoJoiningRef.current) return;
@@ -118,7 +118,7 @@ export function App() {
         useAppStore.getState().setSignalingUrl(invite.serverUrl);
       }
 
-      let resolvedName = invite.userName?.trim() || localStorage.getItem('zoomclone_user_name')?.trim() || '';
+      let resolvedName = invite.userName?.trim() || localStorage.getItem('toobar_user_name')?.trim() || '';
       if (!resolvedName && api.getNetworkInfo) {
         try {
           const info = await api.getNetworkInfo();
@@ -187,8 +187,8 @@ export function App() {
         const queryPart = rawUrl.split('?')[1] || '';
         const params = new URLSearchParams(queryPart.split(/\s/)[0]);
         let mId = params.get('meetingId') || params.get('room') || '';
-        if (!mId && (rawUrl.startsWith('toobar://') || rawUrl.startsWith('zoomclone://'))) {
-          mId = rawUrl.replace(/^(toobar|zoomclone):\/\/(join\/?)?/i, '').split(/[/?&\s]/)[0] || '';
+        if (!mId && rawUrl.startsWith('toobar://')) {
+          mId = rawUrl.replace(/^toobar:\/\/(join\/?)?/i, '').split(/[/?&\s]/)[0] || '';
         }
         if (mId) {
           autoJoinFromInvite({

@@ -1,4 +1,4 @@
-# Toobar (투바) v1.1.1
+# Toobar (투바) v1.1.2
 
 **맥북(macOS) · 아이폰(iOS) · 아이패드(iPadOS) · 윈도우(Windows) · 우분투(Ubuntu Linux) · 안드로이드(Android)** 등 6대 모든 플랫폼을 아우르는 통합 화상 회의 · 실시간 문자 메신저 · 파일 공유 프로그램입니다.
 
@@ -7,17 +7,14 @@
 
 ---
 
-## v1.1.1 긴급 패치 내역 (실행 오류 완벽 수정)
+## v1.1.2 업데이트 내역 (내부 명칭 100% Toobar 일원화 및 구버전 자동 정리)
 
-1. **macOS 실행 크래시(`Unable to find helper app` / ASAR 무결성 해시 불일치) 해결**:
-   - `electron-builder` 클린 패키징으로 `Toobar.app` 및 내부 `Toobar Helper.app`, `ElectronAsarIntegrity` 해시를 100% 정합성 있게 재빌드하여 설치 즉시 정상 실행되도록 수정했습니다.
-2. **Windows 클린 패키징 및 아이콘 언패킹(`app.asar.unpacked`) 적용**:
-   - 기존 캐시 패치 방식 대신 순정 `win-unpacked` 클린 빌드로 전환하고 작업표시줄·트레이 아이콘 언패킹 처리를 추가했습니다.
-3. **Ubuntu 24.04 LTS 샌드박스 충돌 해결**:
-   - `.deb`뿐만 아니라 `.AppImage` 런처에도 `--no-sandbox --disable-gpu-sandbox` 인자를 기본 내장하여 Ubuntu 22.04 / 24.04에서 즉시 실행됩니다.
-4. **iPhone · iPad · Android 호환성 강화 및 즉시 실행 웹앱(PWA) 지원**:
-   - 구형/최신 모바일 WebView 모두에서 즉시 동작하도록 IIFE 클래식 스크립트 번들로 전환하고, 블루투스 미탑재 Wi-Fi 태블릿에서도 APK가 설치되도록 매니페스트를 개선했습니다.
-   - 특히 Apple 정책상 `.ipa` 직접 설치가 제한되는 **아이폰·아이패드**에서는 Safari로 **https://karan211-bruno.github.io/toobar/** 접속 후 **공유 → 홈 화면에 추가**만 누르면 인증서 작업 없이 즉시 네이티브 앱처럼 실행됩니다.
+1. **내부 명칭 · 프로토콜 · 채널 · 저장소 100% `Toobar` 일원화**:
+   - 실행 바이너리(`Toobar`), 번들 ID(`com.toobar.app`), 딥링크 스킴(`toobar://`), 글로벌 클라우드 버스 토픽(`toobar/v2/global_bus`), 로컬 설정 저장소까지 과거 `ZoomClone` 잔재를 완전히 제거하고 `Toobar`로 100% 통일했습니다.
+2. **구버전 `ZoomClone` 잔존 앱 자동 제거 탑재**:
+   - macOS(`.pkg`, `.dmg` 원클릭 설치), Windows(`Setup.exe`), Ubuntu(`.deb`) 설치 시 기존 PC/맥에 남아 있던 구버전 `ZoomClone` 앱과 바로가기를 자동으로 종료·언레지스터·삭제하여 구버전 충돌 팝업이 뜨지 않도록 개선했습니다.
+3. **6대 플랫폼 실행 안정성 검증 완료 (v1.1.1 ~ v1.1.2)**:
+   - macOS(`Toobar Helper` 및 `ElectronAsarIntegrity` 정합성 클린 빌드), Windows(`win-unpacked` 순정 PE 무결성 리소스 및 아이콘 언패킹), Ubuntu 24.04(`--no-sandbox` 내장), iPhone·iPad·Android(IIFE 번들 및 HTTPS PWA) 전 플랫폼 즉시 실행 확인 완료.
 
 ---
 
@@ -45,11 +42,11 @@
 
 | 플랫폼 | 파일명 | 설치 및 실행 방법 |
 | --- | --- | --- |
-| **macOS (Apple Silicon 맥북/맥)** | `Toobar-1.1.1-arm64.pkg` *(권장)* / `.dmg` / `.zip` | **권장**: `Toobar-1.1.1-arm64.pkg`를 우클릭 → **열기**로 설치하면 보안 격리 해제까지 자동 완료되어 바로 실행됩니다. (만약 macOS에서 차단 메시지가 뜨면 **시스템 설정 → 개인정보 보호 및 보안 → 없이도 열기** 클릭) |
-| **Windows 10 / 11 (64-bit)** | `Toobar Setup 1.1.1.exe` / `Toobar 1.1.1.exe` | 설치형(`Setup`) 또는 무설치 포터블(`Toobar 1.1.1.exe`) 실행. **Windows의 PC 보호(SmartScreen)** 파란 창이 뜨면 **추가 정보 → 실행**을 클릭하세요. |
-| **Android (스마트폰 / 태블릿)** | `Toobar-1.1.1-android.apk` | 기기에서 `.apk` 파일을 눌러 설치 (**출처를 알 수 없는 앱 설치 허용** 및 Play 프로텍트 **무시하고 설치** 선택) |
-| **iPhone & iPad (iOS / iPadOS)** | **웹앱(PWA)** *(가장 간편)* 또는 `Toobar-1.1.1-iPhone-iPad.ipa` | **방법 1 (즉시 실행 권장)**: Safari에서 `https://karan211-bruno.github.io/toobar/` 접속 → 하단/상단 **공유 버튼 → 홈 화면에 추가** 클릭<br>**방법 2 (.ipa 설치)**: PC/Mac에서 **Sideloadly / AltStore**로 `.ipa` 서명 설치 (아이폰 파일 앱에서 `.ipa`를 직접 누르면 Apple 정책상 실행되지 않습니다) |
-| **Ubuntu / Debian Linux (64-bit)** | `Toobar_1.1.1_amd64.deb` / `Toobar-1.1.1.AppImage` | 터미널에서 `sudo apt install ./Toobar_1.1.1_amd64.deb` 실행 후 `toobar` 실행, 또는 `chmod +x Toobar-1.1.1.AppImage && ./Toobar-1.1.1.AppImage` |
+| **macOS (Apple Silicon 맥북/맥)** | `Toobar-1.1.2-arm64.pkg` *(권장)* / `.dmg` / `.zip` | **권장**: `Toobar-1.1.2-arm64.pkg`를 우클릭 → **열기**로 설치하면 구버전 `ZoomClone.app` 자동 정리 및 보안 격리 해제까지 한 번에 완료되어 바로 실행됩니다. (만약 macOS에서 차단 메시지가 뜨면 **시스템 설정 → 개인정보 보호 및 보안 → 없이도 열기** 클릭) |
+| **Windows 10 / 11 (64-bit)** | `Toobar Setup 1.1.2.exe` / `Toobar 1.1.2.exe` | 설치형(`Setup`) 또는 무설치 포터블(`Toobar 1.1.2.exe`) 실행. **Windows의 PC 보호(SmartScreen)** 파란 창이 뜨면 **추가 정보 → 실행**을 클릭하세요. |
+| **Android (스마트폰 / 태블릿)** | `Toobar-1.1.2-android.apk` | 기기에서 `.apk` 파일을 눌러 설치 (**출처를 알 수 없는 앱 설치 허용** 및 Play 프로텍트 **무시하고 설치** 선택) |
+| **iPhone & iPad (iOS / iPadOS)** | **웹앱(PWA)** *(가장 간편)* 또는 `Toobar-1.1.2-iPhone-iPad.ipa` | **방법 1 (즉시 실행 권장)**: Safari에서 `https://karan211-bruno.github.io/toobar/` 접속 → 하단/상단 **공유 버튼 → 홈 화면에 추가** 클릭<br>**방법 2 (.ipa 설치)**: PC/Mac에서 **Sideloadly / AltStore**로 `.ipa` 서명 설치 (아이폰 파일 앱에서 `.ipa`를 직접 누르면 Apple 정책상 실행되지 않습니다) |
+| **Ubuntu / Debian Linux (64-bit)** | `Toobar_1.1.2_amd64.deb` / `Toobar-1.1.2.AppImage` | 터미널에서 `sudo apt install ./Toobar_1.1.2_amd64.deb` 실행 후 `toobar` 실행, 또는 `chmod +x Toobar-1.1.2.AppImage && ./Toobar-1.1.2.AppImage` |
 
 ---
 

@@ -11,7 +11,7 @@ export function UpdateModal({ onClose }: UpdateModalProps) {
   const [isChecking, setIsChecking] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string>('');
-  const [customServer, setCustomServer] = useState<string>(() => localStorage.getItem('zoomclone_update_server') || '');
+  const [customServer, setCustomServer] = useState<string>(() => localStorage.getItem('toobar_update_server') || '');
   const [progress, setProgress] = useState<number | null>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -66,7 +66,7 @@ export function UpdateModal({ onClose }: UpdateModalProps) {
     setProgress(null);
     setStatusMsg('클라우드 브릿지 및 로컬 네트워크에서 최신 버전을 검색하고 있습니다...');
     if (customServer.trim()) {
-      localStorage.setItem('zoomclone_update_server', customServer.trim());
+      localStorage.setItem('toobar_update_server', customServer.trim());
     }
     try {
       const res = await api.checkForUpdates(customServer.trim() || undefined);

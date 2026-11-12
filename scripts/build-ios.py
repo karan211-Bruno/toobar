@@ -5,7 +5,7 @@ Generates ios/Toobar.xcodeproj + SwiftUI WKWebView wrapper supporting:
 - iPhone & iPad Universal layout (TARGETED_DEVICE_FAMILY = "1,2")
 - WebRTC Camera & Microphone capture (https://app.toobar.local secure context + WKUIDelegate auto-grant + AVAudioSession)
 - Standalone Messenger & File Transfer (UIActivityViewController save/share + native file picker)
-- Deep link handling (toobar:// and zoomclone://)
+- Deep link handling (toobar://)
 Builds both Toobar-1.1.0-iPhone-iPad.ipa (device) and Toobar-1.1.0-iOS-Simulator.app.zip.
 """
 
@@ -339,7 +339,6 @@ struct ToobarWebView: UIViewRepresentable {
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>toobar</string>
-				<string>zoomclone</string>
 			</array>
 		</dict>
 	</array>

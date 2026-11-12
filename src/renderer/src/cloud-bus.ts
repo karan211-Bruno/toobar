@@ -13,7 +13,7 @@ import type {
 } from '@shared/types';
 import { isElectron } from './electron-bridge';
 
-const MQTT_TOPIC = 'zoomclone/v2/global_bus';
+const MQTT_TOPIC = 'toobar/v2/global_bus';
 const WSS_BROKERS = [
   'wss://broker.emqx.io:8084/mqtt',
   'wss://broker.hivemq.com:8884/mqtt',
@@ -268,7 +268,7 @@ class UniversalCloudBus {
 
   private loadPersistedMessengerState(): void {
     try {
-      this.myName = localStorage.getItem('zoomclone_user_name') || '';
+      this.myName = localStorage.getItem('toobar_user_name') || '';
       const rawConvs = localStorage.getItem('toobar_messenger_convs_v1');
       if (rawConvs) {
         const parsed = JSON.parse(rawConvs) as MessengerConversation[];
@@ -469,7 +469,7 @@ class UniversalCloudBus {
   public getMyIdentity(): { userCode: string; userName: string; platform: DevicePlatform } {
     const storedName =
       this.myName ||
-      (typeof localStorage !== 'undefined' ? localStorage.getItem('zoomclone_user_name') || '' : '');
+      (typeof localStorage !== 'undefined' ? localStorage.getItem('toobar_user_name') || '' : '');
     return {
       userCode: this.myCode,
       userName: storedName || '사용자',
@@ -482,7 +482,7 @@ class UniversalCloudBus {
     if (!trimmed) return;
     this.myName = trimmed;
     try {
-      localStorage.setItem('zoomclone_user_name', trimmed);
+      localStorage.setItem('toobar_user_name', trimmed);
     } catch {}
     this.announcePresence();
     this.notifyMessengerListeners();

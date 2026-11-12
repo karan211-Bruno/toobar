@@ -82,8 +82,11 @@ if [ ! -d "$APP_SRC" ]; then
   exit 1
 fi
 
-echo "1/4. 기존 실행 중인 Toobar 종료 중..."
+echo "1/4. 기존 실행 중인 Toobar 및 구버전 정리 중..."
 killall Toobar >/dev/null 2>&1 || true
+killall ZoomClone >/dev/null 2>&1 || true
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "/Applications/ZoomClone.app" 2>/dev/null || true
+rm -rf "/Applications/ZoomClone.app" "$HOME/Applications/ZoomClone.app" 2>/dev/null || true
 
 echo "2/4. /Applications 폴더로 Toobar.app 복사 중..."
 rm -rf "$APP_DST"
@@ -132,8 +135,20 @@ execSync(
 console.log(`4. Building native macOS PKG installer (Toobar-${version}-arm64.pkg)...`);
 const pkgScriptsDir = '/tmp/toobar-pkg-scripts';
 execSync(`rm -rf "${pkgScriptsDir}" && mkdir -p "${pkgScriptsDir}"`, { stdio: 'inherit' });
+const preinstallPath = path.join(pkgScriptsDir, 'preinstall');
+const preinstallScript = `#!/bin/bash
+killall Toobar 2>/dev/null || true
+killall ZoomClone 2>/dev/null || true
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "/Applications/ZoomClone.app" 2>/dev/null || true
+rm -rf "/Applications/ZoomClone.app" 2>/dev/null || true
+exit 0
+`;
+fs.writeFileSync(preinstallPath, preinstallScript, { mode: 0o755 });
+execSync(`chmod +x "${preinstallPath}"`, { stdio: 'inherit' });
+
 const postinstallPath = path.join(pkgScriptsDir, 'postinstall');
 const postinstallScript = `#!/bin/bash
+rm -rf "/Applications/ZoomClone.app" 2>/dev/null || true
 if [ -d "/Applications/Toobar.app" ]; then
   xattr -cr "/Applications/Toobar.app" 2>/dev/null || true
   codesign --force --deep --sign - "/Applications/Toobar.app" 2>/dev/null || true
@@ -144,10 +159,37 @@ exit 0
 fs.writeFileSync(postinstallPath, postinstallScript, { mode: 0o755 });
 execSync(`chmod +x "${postinstallPath}"`, { stdio: 'inherit' });
 
+const componentPlistPath = '/tmp/toobar-pkg-component.plist';
+execSync(`pkgbuild --analyze --root "${dmgStage}" "${componentPlistPath}"`, { stdio: 'ignore' });
+// Ensure BundleIsRelocatable is false so pkgbuild always installs into /Applications/Toobar.app
+const compXml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+  <dict>
+    <key>BundleHasStrictIdentifier</key>
+    <true/>
+    <key>BundleIsRelocatable</key>
+    <false/>
+    <key>BundleIsVersionChecked</key>
+    <false/>
+    <key>BundleOverwriteAction</key>
+    <string>upgrade</string>
+    <key>RootRelativeBundlePath</key>
+    <string>Toobar.app</string>
+  </dict>
+</array>
+</plist>
+`;
+fs.writeFileSync(componentPlistPath, compXml, 'utf8');
+
+const pkgStageRoot = '/tmp/toobar-pkg-root';
+execSync(`rm -rf "${pkgStageRoot}" && mkdir -p "${pkgStageRoot}" && ditto "${dmgStage}/Toobar.app" "${pkgStageRoot}/Toobar.app"`, { stdio: 'inherit' });
+
 const pkgOut = path.join(distElectronDir, `Toobar-${version}-arm64.pkg`);
 if (fs.existsSync(pkgOut)) fs.unlinkSync(pkgOut);
 execSync(
-  `pkgbuild --component "${dmgStage}/Toobar.app" --install-location /Applications --scripts "${pkgScriptsDir}" --identifier com.toobar.app.pkg --version ${version} "${pkgOut}"`,
+  `pkgbuild --root "${pkgStageRoot}" --component-plist "${componentPlistPath}" --install-location /Applications --scripts "${pkgScriptsDir}" --identifier com.toobar.app.pkg --version ${version} "${pkgOut}"`,
   { stdio: 'inherit' }
 );
 
