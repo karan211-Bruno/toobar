@@ -1,22 +1,54 @@
-// Shared types between main, renderer, and signaling
+// Shared types between main, renderer, mobile webviews, and signaling
 
 // Type references for DOM APIs (available in browser/renderer context)
 type RTCSessionDescriptionInit = { type: RTCSdpType; sdp?: string };
-type RTCIceCandidateInit = { candidate?: string; sdpMid?: string | null; sdpMLineIndex?: number | null; usernameFragment?: string | null };
-type RTCConfiguration = { iceServers?: RTCIceServer[]; iceCandidatePoolSize?: number; iceTransportPolicy?: RTCIceTransportPolicy; bundlePolicy?: RTCBundlePolicy; rtcpMuxPolicy?: RTCRtcpMuxPolicy; peerIdentity?: string; certificates?: RTCCertificate[] };
-type MediaStreamConstraints = { audio?: boolean | MediaTrackConstraints; video?: boolean | MediaTrackConstraints; };
+type RTCIceCandidateInit = {
+  candidate?: string;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+  usernameFragment?: string | null;
+};
+type RTCConfiguration = {
+  iceServers?: RTCIceServer[];
+  iceCandidatePoolSize?: number;
+  iceTransportPolicy?: RTCIceTransportPolicy;
+  bundlePolicy?: RTCBundlePolicy;
+  rtcpMuxPolicy?: RTCRtcpMuxPolicy;
+  peerIdentity?: string;
+  certificates?: RTCCertificate[];
+};
+type MediaStreamConstraints = {
+  audio?: boolean | MediaTrackConstraints;
+  video?: boolean | MediaTrackConstraints;
+};
 type MediaTrackConstraints = { [key: string]: any };
-type RTCIceServer = { urls: string | string[]; username?: string; credential?: string; credentialType?: 'password' | 'oauth' };
+type RTCIceServer = {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+  credentialType?: 'password' | 'oauth';
+};
 type RTCSdpType = 'offer' | 'answer' | 'pranswer' | 'rollback';
 type RTCIceTransportPolicy = 'relay' | 'all';
 type RTCBundlePolicy = 'balanced' | 'max-compat' | 'max-bundle';
 type RTCRtcpMuxPolicy = 'require' | 'negotiate';
 type RTCCertificate = any;
 
+export type DevicePlatform =
+  | 'mac'
+  | 'windows'
+  | 'ubuntu'
+  | 'iphone'
+  | 'ipad'
+  | 'android'
+  | 'web';
+
 export interface User {
   id: string;
   name: string;
   avatar?: string;
+  userCode?: string;
+  platform?: DevicePlatform | string;
   audioEnabled: boolean;
   videoEnabled: boolean;
   screenSharing: boolean;
@@ -43,6 +75,58 @@ export interface MeetingSettings {
   password?: string;
 }
 
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  dataUrl?: string;
+  progress?: number;
+  isComplete?: boolean;
+}
+
+export interface ChatMessageItem {
+  id: string;
+  from: string;
+  fromName: string;
+  message: string;
+  timestamp: number;
+  to?: string;
+  isPrivate?: boolean;
+  attachment?: ChatAttachment;
+}
+
+export interface MessengerPeer {
+  userCode: string;
+  userName: string;
+  platform: DevicePlatform | string;
+  lastSeen: number;
+}
+
+export interface MessengerConversation {
+  id: string; // 'public' | 'dm:<sortedA>:<sortedB>' | 'room:<CODE>'
+  type: 'public' | 'dm' | 'room';
+  title: string;
+  peerCode?: string;
+  roomCode?: string;
+  unreadCount: number;
+  updatedAt: number;
+}
+
+export interface MessengerMessage {
+  id: string;
+  conversationId: string;
+  fromCode: string;
+  fromName: string;
+  fromPlatform: DevicePlatform | string;
+  toCode?: string;
+  roomCode?: string;
+  text: string;
+  timestamp: number;
+  attachment?: ChatAttachment;
+  meetingInviteId?: string;
+}
+
 export interface SignalingMessage {
   type: SignalingMessageType;
   payload: unknown;
@@ -63,6 +147,7 @@ export type SignalingMessageType =
   | 'user-updated'
   | 'meeting-state'
   | 'chat'
+  | 'chat-file-chunk'
   | 'screen-share-start'
   | 'screen-share-stop'
   | 'share-state'
@@ -77,7 +162,14 @@ export type SignalingMessageType =
   | 'pdf-chunk'
   | 'error';
 
-export type ShareMode = 'none' | 'screen' | 'whiteboard' | 'presentation' | 'pdf' | 'video' | 'audio';
+export type ShareMode =
+  | 'none'
+  | 'screen'
+  | 'whiteboard'
+  | 'presentation'
+  | 'pdf'
+  | 'video'
+  | 'audio';
 
 export interface WhiteboardStroke {
   id: string;
@@ -117,6 +209,8 @@ export interface JoinPayload {
   password?: string;
   audioEnabled: boolean;
   videoEnabled: boolean;
+  userCode?: string;
+  platform?: DevicePlatform | string;
 }
 
 export interface OfferPayload {
@@ -153,8 +247,22 @@ export interface MeetingStatePayload {
 }
 
 export interface ChatPayload {
+  id?: string;
   message: string;
   to?: string; // undefined = broadcast
+  attachment?: Omit<ChatAttachment, 'dataUrl'> & { dataUrl?: string };
+}
+
+export interface ChatFileChunkPayload {
+  messageId: string;
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  chunkIndex: number;
+  totalChunks: number;
+  chunkBase64: string;
+  to?: string;
 }
 
 export interface ErrorPayload {
@@ -168,8 +276,6 @@ export const RTC_CONFIGURATION: RTCConfiguration = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    // Add TURN servers for production
-    // { urls: 'turn:your-turn-server.com:3478', username: 'user', credential: 'pass' },
   ],
   iceCandidatePoolSize: 10,
 };

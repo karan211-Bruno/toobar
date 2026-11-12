@@ -19,7 +19,15 @@ build/
 src/**/*.js
 src/**/*.js.map
 src/**/*.d.ts
+!src/renderer/src/global.d.ts
+!src/shared/modules.d.ts
 src/**/*.d.ts.map
+
+# Mobile generated bundles & keystores
+*.keystore
+ios/Toobar/Web/
+android/app/src/main/assets/www/
+android/build/
 
 # Runtime
 *.local

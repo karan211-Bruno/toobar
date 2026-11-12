@@ -15,6 +15,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectDir = join(__dirname, '..');
+const pkgJson = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf8'));
+const version = pkgJson.version || '1.1.0';
 const distElectron = join(projectDir, 'dist-electron');
 mkdirSync(distElectron, { recursive: true });
 
@@ -122,7 +124,7 @@ MimeType=x-scheme-handler/toobar;x-scheme-handler/zoomclone;
 writeFileSync(
   join(controlDir, 'control'),
   `Package: toobar
-Version: 1.0.0
+Version: ${version}
 Section: video
 Priority: optional
 Architecture: amd64
@@ -130,7 +132,7 @@ Replaces: zoom-clone
 Conflicts: zoom-clone
 Maintainer: Toobar Team <support@toobar.app>
 Depends: libgtk-3-0 | libgtk-3-0t64, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0 | libatspi2.0-0t64, libuuid1, libgbm1, libasound2 | libasound2t64
-Description: Toobar - Cross-platform video conferencing app (Electron + React + WebRTC)
+Description: Toobar - Cross-platform video conferencing, messenger & file sharing app
 `
 );
 
@@ -177,7 +179,7 @@ function makeArMember(name, content) {
   return Buffer.concat([header, content]);
 }
 
-console.log('Writing Debian archive Toobar_1.0.0_amd64.deb...');
+console.log(`Writing Debian archive Toobar_${version}_amd64.deb...`);
 const debBuffer = Buffer.concat([
   Buffer.from('!<arch>\n', 'ascii'),
   makeArMember('debian-binary', debianBinary),
@@ -185,7 +187,13 @@ const debBuffer = Buffer.concat([
   makeArMember('data.tar.gz', dataTarGz),
 ]);
 
-const targetDeb = join(distElectron, 'Toobar_1.0.0_amd64.deb');
+const targetDeb = join(distElectron, `Toobar_${version}_amd64.deb`);
 writeFileSync(targetDeb, debBuffer);
+
+// Also build portable Ubuntu/Linux tar.gz archive
+const targetTarGz = join(distElectron, `Toobar-${version}-ubuntu-amd64.tar.gz`);
+execSync(`COPYFILE_DISABLE=1 tar -czf "${targetTarGz}" -C "/tmp/toobar-linux-build" linux-unpacked`);
+
 rmSync(stageDir, { recursive: true, force: true });
 console.log(`✅ Built ${targetDeb}`);
+console.log(`✅ Built ${targetTarGz}`);

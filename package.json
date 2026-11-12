@@ -1,12 +1,12 @@
 {
   "name": "toobar",
-  "version": "1.0.0",
-  "description": "Toobar - Cross-platform video conferencing app (Electron + React + WebRTC)",
+  "version": "1.1.0",
+  "description": "Toobar - Cross-platform video conferencing, messenger & file sharing (macOS, iPhone, iPad, Windows, Ubuntu, Android)",
   "main": "dist/main/index.js",
   "author": "Toobar Team",
   "repository": {
     "type": "git",
-    "url": "https://github.com/karan211-Bruno/zoom-clone.git"
+    "url": "https://github.com/karan211-Bruno/toobar.git"
   },
   "scripts": {
     "dev": "concurrently \"npm run dev:main\" \"npm run dev:renderer\" \"npm run dev:signaling\"",
@@ -20,10 +20,12 @@
     "start": "electron dist/main/index.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac",
+    "dist:mac": "node scripts/build-mac-installer.mjs",
     "dist:win": "electron-builder --win --x64",
     "dist:linux": "node scripts/build-deb.mjs",
-    "dist:all": "npm run dist:mac && npm run dist:win && npm run dist:linux",
+    "dist:ios": "python3 scripts/build-ios.py",
+    "dist:android": "node scripts/build-android.mjs",
+    "dist:all": "npm run build && npm run dist:mac && npm run dist:win && npm run dist:linux && npm run dist:ios && npm run dist:android",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit"
   },

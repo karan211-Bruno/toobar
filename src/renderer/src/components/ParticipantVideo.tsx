@@ -21,6 +21,7 @@ export function ParticipantVideo({
 }: ParticipantVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const currentUserIsHost = useAppStore((s) => Boolean(s.currentUser?.isHost));
+  const cameraFacingMode = useAppStore((s) => s.cameraFacingMode);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -69,7 +70,12 @@ export function ParticipantVideo({
                 : 'hidden'
             }
             onLoadedMetadata={handleLoadedMetadata}
-            style={{ transform: isLocal && !isScreenShare ? 'scaleX(-1)' : 'none' }}
+            style={{
+              transform:
+                isLocal && !isScreenShare && cameraFacingMode !== 'environment'
+                  ? 'scaleX(-1)'
+                  : 'none',
+            }}
           />
         )}
 

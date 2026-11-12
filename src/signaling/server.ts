@@ -283,7 +283,7 @@ io.on('connection', (socket) => {
         const chatPayload = message.payload as ChatPayload;
         const sender = getUserInMeeting(meetingId, userSocket.socketId);
         const fromName = sender?.name || '참가자';
-        const chatId = uuidv4();
+        const chatId = chatPayload.id || uuidv4();
         const timestamp = Date.now();
         const isPrivate = Boolean(chatPayload.to && chatPayload.to !== 'everyone');
 
@@ -297,6 +297,7 @@ io.on('connection', (socket) => {
             to: isPrivate ? chatPayload.to : undefined,
             isPrivate,
             timestamp,
+            attachment: chatPayload.attachment,
           },
           from: userSocket.socketId,
           to: isPrivate ? chatPayload.to : undefined,
@@ -309,6 +310,26 @@ io.on('connection', (socket) => {
           socket.emit('signaling', outgoingMessage);
         } else {
           io.to(meetingId).emit('signaling', outgoingMessage);
+        }
+        callback?.({ success: true });
+        break;
+      }
+
+      case 'chat-file-chunk': {
+        const chunkPayload = (message.payload || {}) as { to?: string };
+        const isPrivate = Boolean(chunkPayload.to && chunkPayload.to !== 'everyone');
+        const outMsg: SignalingMessage = {
+          type: 'chat-file-chunk',
+          payload: message.payload,
+          from: userSocket.socketId,
+          to: isPrivate ? chunkPayload.to : undefined,
+          meetingId,
+          timestamp: Date.now(),
+        };
+        if (isPrivate && chunkPayload.to) {
+          io.to(chunkPayload.to).emit('signaling', outMsg);
+        } else {
+          socket.to(meetingId).emit('signaling', outMsg);
         }
         callback?.({ success: true });
         break;

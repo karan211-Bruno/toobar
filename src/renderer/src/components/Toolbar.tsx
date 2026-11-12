@@ -9,11 +9,14 @@ interface ToolbarProps {
   isHost: boolean;
   onToggleAudio: () => void;
   onToggleVideo: () => void;
+  onSwitchCamera?: () => void;
+  showSwitchCamera?: boolean;
   onToggleScreenShare: () => void;
   onOpenSharePicker?: () => void;
   onToggleRecording: () => void;
   onShowParticipants: () => void;
   onShowChat: () => void;
+  onShowMessenger?: () => void;
   onInvite?: () => void;
   onLeaveMeeting: () => void;
   onSettings: () => void;
@@ -21,6 +24,7 @@ interface ToolbarProps {
   isFullscreen: boolean;
   participantCount?: number;
   unreadChatCount?: number;
+  unreadMessengerCount?: number;
 }
 
 export function Toolbar({
@@ -30,11 +34,14 @@ export function Toolbar({
   isRecording,
   onToggleAudio,
   onToggleVideo,
+  onSwitchCamera,
+  showSwitchCamera = false,
   onToggleScreenShare,
   onOpenSharePicker,
   onToggleRecording,
   onShowParticipants,
   onShowChat,
+  onShowMessenger,
   onInvite,
   onLeaveMeeting,
   onSettings,
@@ -42,6 +49,7 @@ export function Toolbar({
   isFullscreen,
   participantCount = 1,
   unreadChatCount = 0,
+  unreadMessengerCount = 0,
 }: ToolbarProps) {
   return (
     <footer className="meeting-dock" role="toolbar" aria-label="회의 컨트롤 바">
@@ -95,6 +103,21 @@ export function Toolbar({
           </svg>
           <span>{videoEnabled ? '비디오 중지' : '비디오 시작'}</span>
         </button>
+
+        {showSwitchCamera && onSwitchCamera && (
+          <button
+            onClick={onSwitchCamera}
+            onMouseDown={(e) => e.preventDefault()}
+            className="dock-btn"
+            aria-label="전후면 카메라 전환"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4" />
+              <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" />
+            </svg>
+            <span>카메라 전환</span>
+          </button>
+        )}
       </div>
 
       {/* Center: Collaboration, Invite, Participants, Chat, Record */}
@@ -156,8 +179,18 @@ export function Toolbar({
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
-          <span>채팅 {unreadChatCount > 0 ? `(${unreadChatCount})` : ''}</span>
+          <span>회의 채팅 {unreadChatCount > 0 ? `(${unreadChatCount})` : ''}</span>
         </button>
+
+        {onShowMessenger && (
+          <button onClick={onShowMessenger} className="dock-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+              <polyline points="22,6 12,13 2,6" />
+            </svg>
+            <span>문자·파일 {unreadMessengerCount > 0 ? `(${unreadMessengerCount})` : ''}</span>
+          </button>
+        )}
 
         <button
           onClick={onToggleRecording}

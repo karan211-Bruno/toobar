@@ -16,10 +16,10 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["shared/*"]
+      "@shared/*": ["src/shared/*"]
     }
   },
-  "files": ["src/main/index.ts", "src/main/preload.ts", "src/shared/types.ts"],
+  "files": ["src/main/index.ts", "src/main/preload.ts", "src/shared/types.ts", "src/shared/modules.d.ts"],
   "include": ["src/main/**/*", "src/shared/**/*"],
   "exclude": ["node_modules", "dist"]
 }

@@ -766,7 +766,11 @@ interface BridgePacket {
     | 'bridge-update-query'
     | 'bridge-update-announce'
     | 'bridge-update-pull'
-    | 'bridge-update-chunk';
+    | 'bridge-update-chunk'
+    | 'bridge-presence'
+    | 'bridge-presence-ping'
+    | 'bridge-messenger-msg'
+    | 'bridge-messenger-file-chunk';
   data: any;
   ts: number;
 }
@@ -1289,6 +1293,7 @@ async function startSignalingServer(): Promise<void> {
   };
 
   globalSendBridgePacket = sendBridgePacket;
+  const recentMessengerPackets: Array<{ rxAt: number; pkt: BridgePacket }> = [];
   const incomingUpdateChunks = new Map<
     string,
     { manifest: UpdateManifest; chunks: string[]; received: number; total: number }
@@ -1681,6 +1686,18 @@ async function startSignalingServer(): Promise<void> {
         }
         break;
       }
+
+      case 'bridge-presence':
+      case 'bridge-presence-ping':
+      case 'bridge-messenger-msg':
+      case 'bridge-messenger-file-chunk': {
+        const now = Date.now();
+        recentMessengerPackets.push({ rxAt: now, pkt });
+        while (recentMessengerPackets.length > 400 || (recentMessengerPackets[0] && now - recentMessengerPackets[0].rxAt > 60000)) {
+          recentMessengerPackets.shift();
+        }
+        break;
+      }
     }
   };
 
@@ -1845,6 +1862,52 @@ async function startSignalingServer(): Promise<void> {
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(bundle));
+        return;
+      }
+
+      if (urlObj.pathname === '/api/messenger-relay' && req.method === 'POST') {
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on('end', () => {
+          try {
+            const rawStr = Buffer.concat(chunks).toString('utf8');
+            const pkt = JSON.parse(rawStr) as BridgePacket;
+            if (pkt && pkt.msgId && !seenMsgIds.has(pkt.msgId)) {
+              seenMsgIds.add(pkt.msgId);
+              // Forward to LAN UDP broadcast/multicast (WSS already sent to Cloud MQTT, TCP also sends redundantly)
+              const mqttPkt = buildMqttPublishPacket(MQTT_TOPIC, rawStr);
+              for (const sock of mqttSockets) {
+                if (!sock.destroyed && sock.writable) {
+                  try { sock.write(mqttPkt); } catch {}
+                }
+              }
+              if (udpSocket && Buffer.byteLength(rawStr, 'utf8') < 50000) {
+                const buf = Buffer.from(rawStr, 'utf8');
+                for (const addr of getSubnetBroadcastAddresses()) {
+                  try { udpSocket.send(buf, 0, buf.length, UDP_BRIDGE_PORT, addr); } catch {}
+                }
+              }
+              // Also add to recentMessengerPackets so multiple windows on same PC receive it
+              recentMessengerPackets.push({ rxAt: Date.now(), pkt });
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+          } catch (err) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(err) }));
+          }
+        });
+        return;
+      }
+
+      if (urlObj.pathname === '/api/messenger-events' && req.method === 'GET') {
+        const since = Number(urlObj.searchParams.get('since') || 0);
+        const now = Date.now();
+        const packets = recentMessengerPackets
+          .filter((item) => item.rxAt > since)
+          .map((item) => item.pkt);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ packets, now }));
         return;
       }
 
@@ -2074,7 +2137,7 @@ async function startSignalingServer(): Promise<void> {
 
         // Also attempt fast direct LAN HTTP fetch from hostIp if provided
         if (hostIp && hostIp !== '127.0.0.1' && hostIp !== 'localhost' && hostIp !== getLocalIpAddress()) {
-          const pullReq = http.get(
+          const pullReq = httpGet(
             `http://${hostIp}:${HTTP_PORT}/shared-pdf-raw?pdfId=${encodeURIComponent(requestedPdfId)}`,
             { timeout: 1500 },
             (pullRes) => {
@@ -2405,7 +2468,7 @@ async function startSignalingServer(): Promise<void> {
                 const chatPayload = message.payload as ChatPayload;
                 const sender = getUserInMeeting(meetingId, userSocket.socketId);
                 const fromName = sender?.name || '참가자';
-                const chatId = uuidv4();
+                const chatId = chatPayload.id || uuidv4();
                 const timestamp = Date.now();
                 const isPrivate = Boolean(chatPayload.to && chatPayload.to !== 'everyone');
 
@@ -2419,6 +2482,7 @@ async function startSignalingServer(): Promise<void> {
                     to: isPrivate ? chatPayload.to : undefined,
                     isPrivate,
                     timestamp,
+                    attachment: chatPayload.attachment,
                   },
                   from: userSocket.socketId,
                   to: isPrivate ? chatPayload.to : undefined,
@@ -2433,6 +2497,26 @@ async function startSignalingServer(): Promise<void> {
                   io.to(meetingId).emit('signaling', outgoingMessage);
                 }
                 sendBridgePacket('bridge-signaling', meetingId, { message: outgoingMessage });
+                callback?.({ success: true });
+                break;
+              }
+              case 'chat-file-chunk': {
+                const chunkPayload = (message.payload || {}) as { to?: string };
+                const isPrivate = Boolean(chunkPayload.to && chunkPayload.to !== 'everyone');
+                const outMsg: SignalingMessage = {
+                  type: 'chat-file-chunk',
+                  payload: message.payload,
+                  from: userSocket.socketId,
+                  to: isPrivate ? chunkPayload.to : undefined,
+                  meetingId,
+                  timestamp: Date.now(),
+                };
+                if (isPrivate && chunkPayload.to) {
+                  io.to(chunkPayload.to).emit('signaling', outMsg);
+                } else {
+                  socket.to(meetingId).emit('signaling', outMsg);
+                }
+                sendBridgePacket('bridge-signaling', meetingId, { message: outMsg });
                 callback?.({ success: true });
                 break;
               }

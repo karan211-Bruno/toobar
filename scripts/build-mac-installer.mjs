@@ -3,17 +3,35 @@ import path from 'path';
 import { execSync } from 'child_process';
 
 const rootDir = process.cwd();
+const pkgJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+const version = pkgJson.version || '1.1.0';
 const distElectronDir = path.join(rootDir, 'dist-electron');
 const sourceApp = path.join(distElectronDir, 'mac-arm64', 'Toobar.app');
 const publicIconIcns = path.join(rootDir, 'public', 'icon.icns');
 
+function bumpPlistVersion(plistPath, ver) {
+  if (!fs.existsSync(plistPath)) return;
+  let xml = fs.readFileSync(plistPath, 'utf8');
+  xml = xml.replace(
+    /(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]+(<\/string>)/,
+    `$1${ver}$2`
+  );
+  xml = xml.replace(
+    /(<key>CFBundleVersion<\/key>\s*<string>)[^<]+(<\/string>)/,
+    `$1${ver}$2`
+  );
+  fs.writeFileSync(plistPath, xml, 'utf8');
+}
+
 console.log('1. Syncing and signing /Applications/Toobar.app...');
 if (fs.existsSync(sourceApp)) {
+  bumpPlistVersion(path.join(sourceApp, 'Contents', 'Info.plist'), version);
   if (fs.existsSync(publicIconIcns)) {
     fs.copyFileSync(publicIconIcns, path.join(sourceApp, 'Contents', 'Resources', 'icon.icns'));
   }
   execSync(`rm -rf "/Applications/Toobar.app" && ditto "${sourceApp}" "/Applications/Toobar.app"`, { stdio: 'inherit' });
 }
+bumpPlistVersion('/Applications/Toobar.app/Contents/Info.plist', version);
 if (fs.existsSync(publicIconIcns)) {
   fs.copyFileSync(publicIconIcns, '/Applications/Toobar.app/Contents/Resources/icon.icns');
 }
@@ -45,7 +63,7 @@ const oneClickScriptPath = path.join(dmgStage, '⚡ Toobar 원클릭 자동설�
 const oneClickScript = `#!/bin/bash
 clear
 echo "===================================================="
-echo "  🚀 Toobar (투바) macOS 원클릭 자동 설치기 v1.0.0"
+echo "  🚀 Toobar (투바) macOS 원클릭 자동 설치기 v${version}"
 echo "===================================================="
 echo ""
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -97,15 +115,15 @@ const readmeContent = `[Toobar macOS 설치 방법 안내]
 `;
 fs.writeFileSync(readmePath, readmeContent, 'utf8');
 
-console.log('3. Building Toobar-1.0.0-arm64.dmg...');
-const dmgOut = path.join(distElectronDir, 'Toobar-1.0.0-arm64.dmg');
+console.log(`3. Building Toobar-${version}-arm64.dmg...`);
+const dmgOut = path.join(distElectronDir, `Toobar-${version}-arm64.dmg`);
 if (fs.existsSync(dmgOut)) fs.unlinkSync(dmgOut);
 execSync(
   `hdiutil create -volname "Toobar Installer" -srcfolder "${dmgStage}" -ov -format UDZO "${dmgOut}"`,
   { stdio: 'inherit' }
 );
 
-console.log('4. Building native macOS PKG installer (Toobar-1.0.0-arm64.pkg)...');
+console.log(`4. Building native macOS PKG installer (Toobar-${version}-arm64.pkg)...`);
 const pkgScriptsDir = '/tmp/toobar-pkg-scripts';
 execSync(`rm -rf "${pkgScriptsDir}" && mkdir -p "${pkgScriptsDir}"`, { stdio: 'inherit' });
 const postinstallPath = path.join(pkgScriptsDir, 'postinstall');
@@ -120,15 +138,15 @@ exit 0
 fs.writeFileSync(postinstallPath, postinstallScript, { mode: 0o755 });
 execSync(`chmod +x "${postinstallPath}"`, { stdio: 'inherit' });
 
-const pkgOut = path.join(distElectronDir, 'Toobar-1.0.0-arm64.pkg');
+const pkgOut = path.join(distElectronDir, `Toobar-${version}-arm64.pkg`);
 if (fs.existsSync(pkgOut)) fs.unlinkSync(pkgOut);
 execSync(
-  `pkgbuild --component "${dmgStage}/Toobar.app" --install-location /Applications --scripts "${pkgScriptsDir}" --identifier com.toobar.app.pkg --version 1.0.0 "${pkgOut}"`,
+  `pkgbuild --component "${dmgStage}/Toobar.app" --install-location /Applications --scripts "${pkgScriptsDir}" --identifier com.toobar.app.pkg --version ${version} "${pkgOut}"`,
   { stdio: 'inherit' }
 );
 
-console.log('5. Building Toobar-1.0.0-arm64-mac.zip...');
-const zipOut = path.join(distElectronDir, 'Toobar-1.0.0-arm64-mac.zip');
+console.log(`5. Building Toobar-${version}-arm64-mac.zip...`);
+const zipOut = path.join(distElectronDir, `Toobar-${version}-arm64-mac.zip`);
 if (fs.existsSync(zipOut)) fs.unlinkSync(zipOut);
 execSync(`ditto -c -k --sequesterRsrc --keepParent "${dmgStage}/Toobar.app" "${zipOut}"`, { stdio: 'inherit' });
 

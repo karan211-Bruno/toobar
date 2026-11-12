@@ -3,6 +3,7 @@ import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useAppStore } from './store';
 import { api, DeepLinkInvite, UpdateManifest } from './electron-bridge';
 import { webrtcManager } from './webrtc';
+import { cloudBus } from './cloud-bus';
 import { LoginScreen } from './components/LoginScreen';
 import { MeetingScreen } from './components/MeetingScreen';
 import { SettingsModal } from './components/SettingsModal';
@@ -163,6 +164,8 @@ export function App() {
 
   // Initialize media devices and deep-link listeners on mount (once)
   useEffect(() => {
+    cloudBus.start();
+
     const initMediaDevices = async () => {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -176,6 +179,30 @@ export function App() {
       }
     };
     initMediaDevices();
+
+    // Native iOS / iPadOS / Android deep link bridge: window.__toobarHandleDeepLink('toobar://join?meetingId=...')
+    (window as any).__toobarHandleDeepLink = (rawUrl: string) => {
+      if (!rawUrl || typeof rawUrl !== 'string') return;
+      try {
+        const queryPart = rawUrl.split('?')[1] || '';
+        const params = new URLSearchParams(queryPart.split(/\s/)[0]);
+        let mId = params.get('meetingId') || params.get('room') || '';
+        if (!mId && (rawUrl.startsWith('toobar://') || rawUrl.startsWith('zoomclone://'))) {
+          mId = rawUrl.replace(/^(toobar|zoomclone):\/\/(join\/?)?/i, '').split(/[/?&\s]/)[0] || '';
+        }
+        if (mId) {
+          autoJoinFromInvite({
+            meetingId: mId.toUpperCase(),
+            serverUrl: params.get('server') || undefined,
+            userName: params.get('name') || undefined,
+            password: params.get('password') || undefined,
+            autoJoin: true,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    };
 
     // Check URL query string or pending deep link from main process ONCE
     const checkInitialDeepLink = async () => {
@@ -233,6 +260,14 @@ export function App() {
         setShowSettings(false);
       }
     });
+    const cleanupAudioSettings = api.onMenuAction('menu-audio-settings', () => {
+      useAppStore.getState().setActiveTab('settings');
+      setShowSettings(true);
+    });
+    const cleanupVideoSettings = api.onMenuAction('menu-video-settings', () => {
+      useAppStore.getState().setActiveTab('video');
+      setShowSettings(true);
+    });
     const cleanupCheckUpdates = api.onMenuAction('menu-check-updates', () => {
       setShowUpdateModal(true);
     });
@@ -257,6 +292,8 @@ export function App() {
       cleanupDeepLink();
       cleanupNewMeeting();
       cleanupJoinMeeting();
+      cleanupAudioSettings();
+      cleanupVideoSettings();
       cleanupCheckUpdates();
       cleanupUpdateEvent();
     };
@@ -324,6 +361,7 @@ export function App() {
           onJoin={initializeLocalStream}
           onOpenUpdateModal={() => setShowUpdateModal(true)}
         />
+        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
         {showUpdateModal && <UpdateModal onClose={() => setShowUpdateModal(false)} />}
       </>
     );
@@ -335,6 +373,7 @@ export function App() {
       <>
         {updateBanner}
         <PreJoinScreen onJoinComplete={initializeLocalStream} />
+        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
         {showUpdateModal && <UpdateModal onClose={() => setShowUpdateModal(false)} />}
       </>
     );
@@ -381,8 +420,8 @@ interface ElectronAPI {
   }>;
   getRTCConfig: () => Promise<RTCConfiguration>;
   getMediaConstraints: () => Promise<MediaStreamConstraints>;
-  showSaveDialog: (options: Electron.SaveDialogOptions) => Promise<Electron.SaveDialogReturnValue>;
-  showOpenDialog: (options: Electron.OpenDialogOptions) => Promise<Electron.OpenDialogReturnValue>;
+  showSaveDialog: (options: any) => Promise<any>;
+  showOpenDialog: (options: any) => Promise<any>;
   onMenuAction: (channel: string, listener: () => void) => () => void;
 }
 

@@ -56,8 +56,8 @@ interface ElectronAPI {
   }>;
   getRTCConfig: () => Promise<RTCConfiguration>;
   getMediaConstraints: () => Promise<MediaStreamConstraints>;
-  showSaveDialog: (options: Electron.SaveDialogOptions) => Promise<Electron.SaveDialogReturnValue>;
-  showOpenDialog: (options: Electron.OpenDialogOptions) => Promise<Electron.OpenDialogReturnValue>;
+  showSaveDialog: (options: any) => Promise<any>;
+  showOpenDialog: (options: any) => Promise<any>;
   onMenuAction: (channel: string, listener: () => void) => () => void;
   consumeDeepLink?: () => Promise<DeepLinkInvite | null>;
   onDeepLinkInvite?: (listener: (invite: DeepLinkInvite) => void) => () => void;

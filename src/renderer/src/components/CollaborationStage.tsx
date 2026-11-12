@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import type { ShareSessionState, WhiteboardStroke, PresentationSlide } from '@shared/types';
 import { useAppStore } from '../store';
 import { webrtcManager } from '../webrtc';
+import { isElectron } from '../electron-bridge';
+import { detectDevicePlatform, saveOrShareFile } from '../cloud-bus';
 
 const DEFAULT_SLIDES: PresentationSlide[] = [
   {
@@ -45,47 +47,69 @@ async function uploadAndStartPdfShare(file: File): Promise<void> {
   try {
     const ab = await file.arrayBuffer();
 
-    // 1. Upload PDF buffer to local embedded HTTP server (port 3001) + Cross-PC Bridge
-    const resp = await fetch(`http://127.0.0.1:3001/shared-pdf?pdfId=${encodeURIComponent(pdfId)}`, {
-      method: 'POST',
-      body: ab,
-    });
-    if (resp.ok) {
-      const meta = (await resp.json().catch(() => ({}))) as {
-        pdfId?: string;
-        hostIp?: string;
-      };
-      hostIp = meta.hostIp || '';
-    }
-
-    // 2. If connected to a remote signaling server (e.g., participant who became host), also push directly to remote HTTP server
+    // Create in-memory Blob URL immediately so iOS, iPadOS, Android, and Web work without localhost:3001
     try {
-      const sigUrl = useAppStore.getState().signalingUrl;
-      if (sigUrl) {
-        const remoteHost = new URL(sigUrl).hostname;
-        if (remoteHost && remoteHost !== 'localhost' && remoteHost !== '127.0.0.1' && remoteHost !== hostIp) {
-          fetch(`http://${remoteHost}:3001/shared-pdf?pdfId=${encodeURIComponent(pdfId)}`, {
-            method: 'POST',
-            body: ab,
-          }).catch(() => {});
-        }
-      }
+      const localBlob = URL.createObjectURL(new Blob([ab], { type: 'application/pdf' }));
+      useAppStore.getState().setSharedPdfBlobUrl(pdfId, localBlob);
+      pdfUrl = localBlob;
     } catch {
       // ignore
     }
 
-    // 3. Also broadcast PDF over Socket.IO / Cross-PC Bridge for guaranteed delivery across any network
-    if (ab.byteLength <= 15 * 1024 * 1024) {
-      webrtcManager.broadcastPdfBuffer(pdfId, ab);
+    // 1. On Desktop Electron, also upload PDF buffer to local embedded HTTP server (port 3001) + Cross-PC Bridge
+    if (isElectron()) {
+      try {
+        const resp = await fetch(
+          `http://127.0.0.1:3001/shared-pdf?pdfId=${encodeURIComponent(pdfId)}`,
+          {
+            method: 'POST',
+            body: ab,
+          }
+        );
+        if (resp.ok) {
+          const meta = (await resp.json().catch(() => ({}))) as {
+            pdfId?: string;
+            hostIp?: string;
+          };
+          hostIp = meta.hostIp || '';
+          const params = new URLSearchParams();
+          params.set('pdfId', pdfId);
+          if (hostIp) params.set('hostIp', hostIp);
+          params.set('t', String(Date.now()));
+          pdfUrl = `http://127.0.0.1:3001/shared-pdf?${params.toString()}`;
+        }
+      } catch {
+        // ignore if port 3001 unavailable
+      }
+
+      // 2. If connected to a remote signaling server (e.g., participant who became host), also push directly to remote HTTP server
+      try {
+        const sigUrl = useAppStore.getState().signalingUrl;
+        if (sigUrl) {
+          const remoteHost = new URL(sigUrl).hostname;
+          if (
+            remoteHost &&
+            remoteHost !== 'localhost' &&
+            remoteHost !== '127.0.0.1' &&
+            remoteHost !== hostIp
+          ) {
+            fetch(`http://${remoteHost}:3001/shared-pdf?pdfId=${encodeURIComponent(pdfId)}`, {
+              method: 'POST',
+              body: ab,
+            }).catch(() => {});
+          }
+        }
+      } catch {
+        // ignore
+      }
     }
 
-    const params = new URLSearchParams();
-    params.set('pdfId', pdfId);
-    if (hostIp) params.set('hostIp', hostIp);
-    params.set('t', String(Date.now()));
-    pdfUrl = `http://127.0.0.1:3001/shared-pdf?${params.toString()}`;
+    // 3. Always broadcast PDF over Socket.IO / Cross-PC / Mobile CloudBus for guaranteed delivery across any OS
+    if (ab.byteLength <= 20 * 1024 * 1024) {
+      webrtcManager.broadcastPdfBuffer(pdfId, ab);
+    }
   } catch {
-    if (nativePath) {
+    if (nativePath && isElectron()) {
       pdfUrl = `http://127.0.0.1:3001/local-media?path=${encodeURIComponent(nativePath)}`;
     }
   }
@@ -628,16 +652,16 @@ export function CollaborationStage() {
     }
   }, [isOwner, shareSession.mode, shareSession.mediaName]);
 
-  const getNormalizedPoint = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const getNormalizedPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
     return {
-      x: (e.clientX - rect.left) / rect.width,
-      y: (e.clientY - rect.top) / rect.height,
+      x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
     };
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const pt = getNormalizedPoint(e);
     if (tool === 'text') {
       const input = prompt('입력할 텍스트를 작성하세요:');
@@ -653,11 +677,14 @@ export function CollaborationStage() {
       }
       return;
     }
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
     setIsDrawing(true);
     setCurrentPoints([pt]);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing || !canvasRef.current) return;
     const pt = getNormalizedPoint(e);
     const nextPoints =
@@ -678,7 +705,12 @@ export function CollaborationStage() {
     }
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = (e?: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {}
+    }
     if (!isDrawing) return;
     setIsDrawing(false);
     if (currentPoints.length > 0) {
@@ -695,10 +727,8 @@ export function CollaborationStage() {
 
   const handleDownloadCanvas = () => {
     if (!canvasRef.current) return;
-    const link = document.createElement('a');
-    link.download = `zoomclone-whiteboard-${Date.now()}.png`;
-    link.href = canvasRef.current.toDataURL('image/png');
-    link.click();
+    const dataUrl = canvasRef.current.toDataURL('image/png');
+    saveOrShareFile(`Toobar-전자칠판-${Date.now()}.png`, dataUrl, 'image/png');
   };
 
   const handleSlideChange = (nextIndex: number) => {
@@ -900,10 +930,11 @@ export function CollaborationStage() {
             ref={canvasRef}
             width={1600}
             height={900}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            style={{ touchAction: 'none' }}
             className="w-full h-full object-contain cursor-crosshair"
           />
         )}
@@ -937,10 +968,11 @@ export function CollaborationStage() {
                 ref={canvasRef}
                 width={1600}
                 height={900}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                style={{ touchAction: 'none' }}
                 className="absolute inset-0 w-full h-full cursor-crosshair"
               />
             </div>
@@ -1005,10 +1037,11 @@ export function CollaborationStage() {
                 ref={canvasRef}
                 width={1600}
                 height={900}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                style={{ touchAction: pdfAnnotateMode ? 'none' : 'auto' }}
                 className={`absolute inset-0 w-full h-full ${
                   pdfAnnotateMode
                     ? 'cursor-crosshair pointer-events-auto'
@@ -1082,13 +1115,25 @@ function PdfDocumentViewer({
   isOwner: boolean;
   title?: string;
 }) {
+  const sharedBlobUrl = useAppStore((s) =>
+    propPdfId ? s.sharedPdfBlobUrls[propPdfId] : undefined
+  );
+  const platform = detectDevicePlatform();
+
   const [readyHttpUrl, setReadyHttpUrl] = useState<string | null>(() => {
-    if (isOwner && pdfDataUrl && pdfDataUrl.startsWith('http://')) {
-      return `${pdfDataUrl}#toolbar=1&view=FitH`;
+    if (sharedBlobUrl) return sharedBlobUrl;
+    if (isOwner && pdfDataUrl && (pdfDataUrl.startsWith('http://') || pdfDataUrl.startsWith('blob:'))) {
+      return pdfDataUrl.startsWith('http://') ? `${pdfDataUrl}#toolbar=1&view=FitH` : pdfDataUrl;
     }
     return null;
   });
   const [loadingMsg, setLoadingMsg] = useState<string>('PDF 문서를 불러오는 중...');
+
+  useEffect(() => {
+    if (sharedBlobUrl && !isElectron()) {
+      setReadyHttpUrl(sharedBlobUrl);
+    }
+  }, [sharedBlobUrl]);
 
   useEffect(() => {
     if (!pdfDataUrl && !propPdfId) return;
@@ -1104,6 +1149,36 @@ function PdfDocumentViewer({
       } catch {
         // ignore
       }
+    }
+
+    // Non-Electron (iPhone, iPad, Android, Web): use CloudBus Blob URL directly
+    if (!isElectron()) {
+      if (sharedBlobUrl) {
+        setReadyHttpUrl(sharedBlobUrl);
+        return;
+      }
+      if (isOwner && pdfDataUrl && pdfDataUrl.startsWith('blob:')) {
+        setReadyHttpUrl(pdfDataUrl);
+        return;
+      }
+      if (pdfId) {
+        webrtcManager.requestPdfPull(pdfId);
+      }
+      let cancelledMobile = false;
+      const pollTimer = setInterval(() => {
+        if (cancelledMobile) return;
+        const found = pdfId ? useAppStore.getState().sharedPdfBlobUrls[pdfId] : undefined;
+        if (found) {
+          setReadyHttpUrl(found);
+          clearInterval(pollTimer);
+        } else if (pdfId) {
+          webrtcManager.requestPdfPull(pdfId);
+        }
+      }, 1200);
+      return () => {
+        cancelledMobile = true;
+        clearInterval(pollTimer);
+      };
     }
 
     if (isOwner) {
@@ -1134,6 +1209,12 @@ function PdfDocumentViewer({
     const fetchPdfWithRetry = async () => {
       for (let attempt = 1; attempt <= 30; attempt++) {
         if (cancelled) return;
+        // Check if chunked broadcast already arrived in store
+        const memBlob = pdfId ? useAppStore.getState().sharedPdfBlobUrls[pdfId] : undefined;
+        if (memBlob && attempt >= 4) {
+          setReadyHttpUrl(memBlob);
+          return;
+        }
         try {
           const localParams = new URLSearchParams();
           if (pdfId) localParams.set('pdfId', pdfId);
@@ -1208,13 +1289,68 @@ function PdfDocumentViewer({
     return () => {
       cancelled = true;
     };
-  }, [pdfDataUrl, propPdfId, propHostIp, isOwner]);
+  }, [pdfDataUrl, propPdfId, propHostIp, isOwner, sharedBlobUrl]);
+
+  const handleSavePdf = async () => {
+    const targetUrl = sharedBlobUrl || readyHttpUrl?.split('#')[0];
+    if (!targetUrl) return;
+    try {
+      const resp = await fetch(targetUrl);
+      const blob = await resp.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      await saveOrShareFile(title || 'shared-document.pdf', dataUrl, 'application/pdf');
+    } catch {
+      // ignore
+    }
+  };
 
   if (!readyHttpUrl) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-secondary bg-primary gap-3">
         <span className="spinner" />
         <p className="text-sm font-medium">{loadingMsg}</p>
+      </div>
+    );
+  }
+
+  if (platform === 'android') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full bg-slate-900 text-primary p-6 text-center gap-4">
+        <div className="text-4xl">📄</div>
+        <div>
+          <h3 className="text-base font-bold">{title || '공유된 PDF 문서'}</h3>
+          <p className="text-xs text-secondary mt-1">
+            안드로이드 기기에서 PDF 문서를 다운로드하거나 기본 뷰어 앱으로 바로 열 수 있습니다.
+          </p>
+        </div>
+        <button type="button" onClick={handleSavePdf} className="btn btn-primary py-2.5 px-5 text-sm">
+          📥 PDF 문서 열기 / 다운로드
+        </button>
+      </div>
+    );
+  }
+
+  if (platform === 'iphone' || platform === 'ipad' || !isElectron()) {
+    return (
+      <div className="relative w-full h-full bg-white">
+        <iframe
+          key={readyHttpUrl}
+          src={readyHttpUrl}
+          title={title || 'PDF 문서'}
+          className="w-full h-full border-0 bg-white"
+        />
+        <button
+          type="button"
+          onClick={handleSavePdf}
+          className="absolute bottom-3 right-3 z-10 btn btn-primary py-1.5 px-3 text-xs shadow-lg"
+        >
+          📥 PDF 저장/공유
+        </button>
       </div>
     );
   }

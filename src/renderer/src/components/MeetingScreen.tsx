@@ -1,12 +1,14 @@
 // Main Meeting Screen
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { useAppStore } from '../store';
-import { api } from '../electron-bridge';
+import { api, isElectron } from '../electron-bridge';
 import { webrtcManager } from '../webrtc';
+import { cloudBus, detectDevicePlatform, saveOrShareFile } from '../cloud-bus';
 import { VideoGrid } from './VideoGrid';
 import { Toolbar } from './Toolbar';
 import { ParticipantsPanel } from './ParticipantsPanel';
 import { ChatPanel } from './ChatPanel';
+import { MessengerPanel } from './MessengerPanel';
 import { ScreenShareBanner } from './ScreenShareBanner';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import { InviteModal } from './InviteModal';
@@ -31,12 +33,123 @@ export function MeetingScreen() {
   } = useAppStore();
 
   const [showSidebar, setShowSidebar] = useState(false);
-  const [sidebarContent, setSidebarContent] = useState<'participants' | 'chat'>('participants');
+  const [sidebarContent, setSidebarContent] = useState<'participants' | 'chat' | 'messenger'>(
+    'participants'
+  );
+  const [lastSeenChatCount, setLastSeenChatCount] = useState(0);
+  const [unreadMessengerCount, setUnreadMessengerCount] = useState(() =>
+    cloudBus.getTotalUnreadCount()
+  );
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [quickCopied, setQuickCopied] = useState(false);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+
+  const platform = detectDevicePlatform();
+  const isMobileDevice =
+    platform === 'iphone' || platform === 'ipad' || platform === 'android';
+  const isMacElectron = isElectron() && Boolean((window as any).platform?.isMac);
+
+  useEffect(() => {
+    if (showSidebar && sidebarContent === 'chat') {
+      setLastSeenChatCount(messages.length);
+    }
+  }, [showSidebar, sidebarContent, messages.length]);
+
+  useEffect(() => {
+    const unsub = cloudBus.onMessengerUpdate(() => {
+      setUnreadMessengerCount(cloudBus.getTotalUnreadCount());
+    });
+    return unsub;
+  }, []);
+
+  const handleToggleRecording = useCallback(async () => {
+    if (isRecording) {
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch {}
+      useAppStore.getState().setIsRecording(false);
+      return;
+    }
+
+    if (typeof MediaRecorder === 'undefined') {
+      alert('이 기기에서는 브라우저 내장 녹화를 지원하지 않습니다.');
+      return;
+    }
+
+    const state = useAppStore.getState();
+    const baseStream = state.screenStream || state.localStream;
+    if (!baseStream) {
+      alert('녹화할 카메라 또는 공유 화면 스트림이 없습니다.');
+      return;
+    }
+
+    try {
+      const tracks: MediaStreamTrack[] = [...baseStream.getVideoTracks()];
+      if (state.localStream?.getAudioTracks().length) {
+        tracks.push(...state.localStream.getAudioTracks());
+      } else if (baseStream.getAudioTracks().length) {
+        tracks.push(...baseStream.getAudioTracks());
+      }
+      if (tracks.length === 0) {
+        alert('녹화 가능한 비디오/오디오 트랙이 없습니다.');
+        return;
+      }
+
+      const mixedStream = new MediaStream(tracks);
+      const preferredMime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+        ? 'video/webm;codecs=vp8,opus'
+        : MediaRecorder.isTypeSupported('video/webm')
+        ? 'video/webm'
+        : MediaRecorder.isTypeSupported('video/mp4')
+        ? 'video/mp4'
+        : '';
+
+      recordedChunksRef.current = [];
+      const recorder = preferredMime
+        ? new MediaRecorder(mixedStream, { mimeType: preferredMime })
+        : new MediaRecorder(mixedStream);
+
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          recordedChunksRef.current.push(ev.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const chunks = recordedChunksRef.current;
+        recordedChunksRef.current = [];
+        if (chunks.length === 0) return;
+        const mime = recorder.mimeType || 'video/webm';
+        const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+        const blob = new Blob(chunks, { type: mime });
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            saveOrShareFile(
+              `Toobar-회의녹화-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.${ext}`,
+              reader.result,
+              mime
+            );
+          }
+        };
+        reader.readAsDataURL(blob);
+      };
+
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      useAppStore.getState().setIsRecording(true);
+    } catch (err) {
+      console.error('Recording start failed:', err);
+      alert('녹화를 시작하지 못했습니다.');
+    }
+  }, [isRecording]);
 
   const handleToggleAudio = useCallback(() => {
     const next = !useAppStore.getState().audioEnabled;
@@ -111,17 +224,19 @@ export function MeetingScreen() {
       shareSession.mode !== 'screen'
   );
 
+  const unreadChatCount = Math.max(0, messages.length - lastSeenChatCount);
+
   return (
     <div className="app-screen">
       {/* Top Meeting Info & Quick Action Header */}
-      <header className="meeting-header">
+      <header className={`meeting-header ${isMacElectron ? 'mac-traffic-padding' : ''}`}>
         <div className="meeting-header-left">
           <span
             className="w-2 h-2 rounded-full"
             style={{ backgroundColor: isConnected ? '#10b981' : '#f59e0b' }}
             title={isConnected ? '실시간 연결됨' : '연결 중'}
           />
-          <span className="font-semibold text-sm text-primary truncate" style={{ maxWidth: 200 }}>
+          <span className="font-semibold text-sm text-primary truncate" style={{ maxWidth: 180 }}>
             {currentMeeting.name}
           </span>
 
@@ -132,7 +247,7 @@ export function MeetingScreen() {
             </code>
             <button
               onClick={() => {
-                navigator.clipboard.writeText(currentMeeting.id);
+                navigator.clipboard?.writeText(currentMeeting.id);
                 setQuickCopied(true);
                 setTimeout(() => setQuickCopied(false), 1800);
               }}
@@ -143,23 +258,25 @@ export function MeetingScreen() {
             </button>
           </div>
 
-          <span className="badge bg-tertiary text-secondary">
+          <span className="badge bg-tertiary text-secondary hidden sm:inline-flex">
             참가자 {allParticipants.length}명
           </span>
         </div>
 
         <div className="meeting-header-right">
-          <button
-            onClick={() => setShowUpdateModal(true)}
-            className="btn btn-secondary py-1.5 px-2.5 text-xs"
-            title="무설치 자동/수동 업데이트 확인 및 설정"
-          >
-            <span>🔄 업데이트</span>
-          </button>
+          {isElectron() && (
+            <button
+              onClick={() => setShowUpdateModal(true)}
+              className="btn btn-secondary py-1.5 px-2.5 text-xs"
+              title="무설치 자동/수동 업데이트 확인 및 설정"
+            >
+              <span>🔄 업데이트</span>
+            </button>
+          )}
 
           <button
             onClick={() => setShowShareModal(true)}
-            className="btn btn-secondary py-1.5 px-3 text-xs"
+            className="btn btn-secondary py-1.5 px-3 text-xs hidden sm:inline-flex"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -178,7 +295,7 @@ export function MeetingScreen() {
               <line x1="20" y1="8" x2="20" y2="14" />
               <line x1="23" y1="11" x2="17" y2="11" />
             </svg>
-            <span>초대 링크 공유</span>
+            <span>초대</span>
           </button>
         </div>
       </header>
@@ -225,14 +342,18 @@ export function MeetingScreen() {
           </div>
         )}
 
-        {/* Right Docked Sidebar (Participants / Chat) */}
+        {/* Right Docked Sidebar (Participants / Chat / Messenger) */}
         {showSidebar && (
-          <aside className="meeting-sidebar animate-fade-in">
-            <div className="flex items-center justify-between p-3 border-b border-border-color gap-2">
-              <div className="flex bg-primary rounded-lg p-1 flex-1">
+          <aside
+            className={`meeting-sidebar animate-fade-in ${
+              sidebarContent === 'messenger' ? 'wide-messenger' : ''
+            }`}
+          >
+            <div className="flex items-center justify-between p-2.5 border-b border-border-color gap-1.5">
+              <div className="flex bg-primary rounded-lg p-1 flex-1 gap-0.5">
                 <button
                   onClick={() => setSidebarContent('participants')}
-                  className={`flex-1 py-1.5 px-3 rounded-md text-xs font-semibold ${
+                  className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold ${
                     sidebarContent === 'participants'
                       ? 'bg-accent-primary text-white'
                       : 'text-secondary hover:text-primary'
@@ -241,14 +362,27 @@ export function MeetingScreen() {
                   참가자 ({allParticipants.length})
                 </button>
                 <button
-                  onClick={() => setSidebarContent('chat')}
-                  className={`flex-1 py-1.5 px-3 rounded-md text-xs font-semibold ${
+                  onClick={() => {
+                    setSidebarContent('chat');
+                    setLastSeenChatCount(messages.length);
+                  }}
+                  className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold ${
                     sidebarContent === 'chat'
                       ? 'bg-accent-primary text-white'
                       : 'text-secondary hover:text-primary'
                   }`}
                 >
-                  채팅 ({messages.length})
+                  회의채팅 {unreadChatCount > 0 ? `(${unreadChatCount})` : ''}
+                </button>
+                <button
+                  onClick={() => setSidebarContent('messenger')}
+                  className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold ${
+                    sidebarContent === 'messenger'
+                      ? 'bg-accent-primary text-white'
+                      : 'text-secondary hover:text-primary'
+                  }`}
+                >
+                  문자·파일 {unreadMessengerCount > 0 ? `(${unreadMessengerCount})` : ''}
                 </button>
               </div>
               <button
@@ -270,12 +404,14 @@ export function MeetingScreen() {
                   currentUserId={currentUser.id}
                   currentUserIsHost={currentUser.isHost}
                 />
-              ) : (
+              ) : sidebarContent === 'chat' ? (
                 <ChatPanel
                   messages={messages}
                   currentUserId={currentUser.id}
                   currentUserName={currentUser.name}
                 />
+              ) : (
+                <MessengerPanel embedded userName={currentUser.name} />
               )}
             </div>
           </aside>
@@ -293,9 +429,11 @@ export function MeetingScreen() {
         isHost={currentUser.isHost}
         onToggleAudio={handleToggleAudio}
         onToggleVideo={handleToggleVideo}
+        onSwitchCamera={() => webrtcManager.switchCamera()}
+        showSwitchCamera={isMobileDevice}
         onToggleScreenShare={handleToggleScreenShare}
         onOpenSharePicker={() => setShowShareModal(true)}
-        onToggleRecording={() => useAppStore.getState().setIsRecording(!isRecording)}
+        onToggleRecording={handleToggleRecording}
         onShowParticipants={() => {
           if (showSidebar && sidebarContent === 'participants') {
             setShowSidebar(false);
@@ -309,11 +447,25 @@ export function MeetingScreen() {
             setShowSidebar(false);
           } else {
             setSidebarContent('chat');
+            setLastSeenChatCount(messages.length);
+            setShowSidebar(true);
+          }
+        }}
+        onShowMessenger={() => {
+          if (showSidebar && sidebarContent === 'messenger') {
+            setShowSidebar(false);
+          } else {
+            setSidebarContent('messenger');
             setShowSidebar(true);
           }
         }}
         onInvite={() => setShowInviteModal(true)}
         onLeaveMeeting={async () => {
+          if (isRecording) {
+            try {
+              mediaRecorderRef.current?.stop();
+            } catch {}
+          }
           await webrtcManager.leaveMeeting();
           useAppStore.getState().reset();
         }}
@@ -321,7 +473,8 @@ export function MeetingScreen() {
         onFullscreen={() => setIsFullscreen(!isFullscreen)}
         isFullscreen={isFullscreen}
         participantCount={allParticipants.length}
-        unreadChatCount={messages.length}
+        unreadChatCount={unreadChatCount}
+        unreadMessengerCount={unreadMessengerCount}
       />
 
       {/* Invite Modal */}

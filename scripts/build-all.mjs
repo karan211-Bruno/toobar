@@ -274,7 +274,8 @@ function generateOtaUpdateBundle() {
     version,
     buildId,
     buildTimestamp: now,
-    releaseNotes: '자동/수동 OTA 라이브 업데이트 지원 · 크로스 PC 연결 · 원클릭 자동 입장',
+    releaseNotes:
+      'v1.1.0: 맥북·아이폰·아이패드·윈도우·우분투·안드로이드 통합 지원 · 실시간 문자 메신저 및 파일 공유',
     hash: contentHash,
   };
 
@@ -354,6 +355,13 @@ async function main() {
   const preadPlugin = {
     name: 'pread-loader',
     setup(build) {
+      build.onResolve({ filter: /^@shared\// }, (args) => {
+        const sub = args.path.replace(/^@shared\//, '');
+        const candidateTs = join(rootDir, 'src/shared', `${sub}.ts`);
+        return {
+          path: existsSync(candidateTs) ? candidateTs : join(rootDir, 'src/shared', sub),
+        };
+      });
       build.onLoad({ filter: /\.(tsx|ts|jsx|js|mjs|cjs|css|json)$/ }, (args) => {
         const ext = extname(args.path).slice(1);
         const loaderMap = {
@@ -391,8 +399,10 @@ async function main() {
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Toobar - 화상 회의</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Toobar - 화상 회의 · 문자 · 파일 공유</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">

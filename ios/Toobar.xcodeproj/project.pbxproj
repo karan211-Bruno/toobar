@@ -1,0 +1,256 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		6097441DD83FF41BE01A2728 /* ToobarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 611F13214BF9744A1E54EE33 /* ToobarApp.swift */; };
+		EFB995918A7278CE4D5A4B8B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03AA46640612C3B8292233DA /* ContentView.swift */; };
+		B1DDE96427843FEA06083281 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BFCB8A60EC05CAE49BC51802 /* Assets.xcassets */; };
+		3F69A7BBB63CD1043B48D1BE /* Web in Resources */ = {isa = PBXBuildFile; fileRef = F099A7767645B608999E02DA /* Web */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		611F13214BF9744A1E54EE33 /* ToobarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToobarApp.swift; sourceTree = "<group>"; };
+		03AA46640612C3B8292233DA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		BFCB8A60EC05CAE49BC51802 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F099A7767645B608999E02DA /* Web */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Web; sourceTree = "<group>"; };
+		492DDD54EB749B7EB41A4F2D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		087DA9135B9FE25D1F4D1AEC /* Toobar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Toobar.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3CCA6D895D8ABC0AC629790E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C4459E9C651B31422DB866BA = {
+			isa = PBXGroup;
+			children = (
+				C26A4969F5C80703BA01F552 /* Toobar */,
+				C502A85D5A54E55D0500586C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C26A4969F5C80703BA01F552 /* Toobar */ = {
+			isa = PBXGroup;
+			children = (
+				611F13214BF9744A1E54EE33 /* ToobarApp.swift */,
+				03AA46640612C3B8292233DA /* ContentView.swift */,
+				BFCB8A60EC05CAE49BC51802 /* Assets.xcassets */,
+				F099A7767645B608999E02DA /* Web */,
+				492DDD54EB749B7EB41A4F2D /* Info.plist */,
+			);
+			path = Toobar;
+			sourceTree = "<group>";
+		};
+		C502A85D5A54E55D0500586C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				087DA9135B9FE25D1F4D1AEC /* Toobar.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C20729F35F16340B6FDA93EF /* Toobar */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E67C24ECE91BC3267725CC6 /* Build configuration list for PBXNativeTarget "Toobar" */;
+			buildPhases = (
+				5A2EE4A90B31869FD4141945 /* Sources */,
+				3CCA6D895D8ABC0AC629790E /* Frameworks */,
+				57F8BE20E93F8CD74343E07A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Toobar;
+			productName = Toobar;
+			productReference = 087DA9135B9FE25D1F4D1AEC /* Toobar.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DD5A0C6769ADA46B2ED7AF26 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					C20729F35F16340B6FDA93EF = {
+						CreatedOnToolsVersion = 16.0;
+						DevelopmentTeam = 82XJ92M3ZC;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 1BBEC9BE8F928D9506D936FB /* Build configuration list for PBXProject "Toobar" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = ko;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				ko,
+				en,
+				Base,
+			);
+			mainGroup = C4459E9C651B31422DB866BA;
+			productRefGroup = C502A85D5A54E55D0500586C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C20729F35F16340B6FDA93EF /* Toobar */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		57F8BE20E93F8CD74343E07A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1DDE96427843FEA06083281 /* Assets.xcassets in Resources */,
+				3F69A7BBB63CD1043B48D1BE /* Web in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5A2EE4A90B31869FD4141945 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6097441DD83FF41BE01A2728 /* ToobarApp.swift in Sources */,
+				EFB995918A7278CE4D5A4B8B /* ContentView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		2FDA84E70DBF8868D50F1562 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		4EB84E659B011A67E65EA6F9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		7D2BCFBC094C6282F9E3D105 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 82XJ92M3ZC;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Toobar/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.karan211.toobar;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		53E0AFE7006723EC1AFDEF05 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 82XJ92M3ZC;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Toobar/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.karan211.toobar;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1BBEC9BE8F928D9506D936FB /* Build configuration list for PBXProject "Toobar" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2FDA84E70DBF8868D50F1562 /* Debug */,
+				4EB84E659B011A67E65EA6F9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3E67C24ECE91BC3267725CC6 /* Build configuration list for PBXNativeTarget "Toobar" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7D2BCFBC094C6282F9E3D105 /* Debug */,
+				53E0AFE7006723EC1AFDEF05 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = DD5A0C6769ADA46B2ED7AF26 /* Project object */;
+}

@@ -1,5 +1,10 @@
-// WebRTC + Socket.io Multi-Client Manager
+// WebRTC + Universal Multi-Platform Signaling Manager
+// Supports:
+// 1. Electron Desktop Socket.IO + LAN/MQTT Bridge (localhost:3002 or custom LAN URL)
+// 2. Serverless Mobile/Web Cloud Bus Mode (iPhone, iPad, Android, Web via WSS MQTT)
+
 import { io, Socket } from 'socket.io-client';
+import { v4 as uuidv4 } from 'uuid';
 import type {
   JoinPayload,
   SignalingMessage,
@@ -13,9 +18,14 @@ import type {
   ErrorPayload,
   ShareSessionState,
   WhiteboardStroke,
+  ChatAttachment,
+  ChatFileChunkPayload,
+  Meeting,
+  User,
 } from '@shared/types';
 import { useAppStore } from './store';
-import { api } from './electron-bridge';
+import { api, isElectron } from './electron-bridge';
+import { cloudBus, detectDevicePlatform, getOrCreateUserCode, UniversalBridgePacket } from './cloud-bus';
 
 const DEFAULT_SIGNALING_URL = 'http://localhost:3002';
 
@@ -30,6 +40,9 @@ const DEFAULT_RTC_CONFIGURATION: RTCConfiguration = {
 
 class WebRTCManager {
   private socket: Socket | null = null;
+  private useCloudBusMode = false;
+  private cloudCleanup: (() => void) | null = null;
+  private cloudRoomSyncTimer: ReturnType<typeof setInterval> | null = null;
   private peerConnections = new Map<string, RTCPeerConnection>();
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private remoteStreams = new Map<string, MediaStream>();
@@ -41,6 +54,12 @@ class WebRTCManager {
     string,
     { chunks: string[]; received: number; total: number }
   >();
+  private incomingChatFiles = new Map<
+    string,
+    { messageId: string; mimeType: string; chunks: string[]; received: number; total: number }
+  >();
+  private localSharedPdfBuffer: ArrayBuffer | null = null;
+  private localSharedPdfId = '';
 
   private ensureSocket(): Socket {
     const targetUrl = useAppStore.getState().signalingUrl || DEFAULT_SIGNALING_URL;
@@ -57,25 +76,26 @@ class WebRTCManager {
     const socket = io(targetUrl, {
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 8,
       reconnectionDelay: 1000,
     });
 
     socket.on('connect', () => {
-      console.log('[WebRTC] Connected to signaling server:', socket.id);
       useAppStore.getState().setIsConnected(true);
       useAppStore.getState().setConnectionError(null);
     });
 
-    socket.on('disconnect', (reason) => {
-      console.log('[WebRTC] Disconnected from signaling server:', reason);
-      useAppStore.getState().setIsConnected(false);
+    socket.on('disconnect', () => {
+      if (!this.useCloudBusMode) {
+        useAppStore.getState().setIsConnected(false);
+      }
     });
 
-    socket.on('connect_error', (err) => {
-      console.error('[WebRTC] Signaling connection error:', err);
-      useAppStore.getState().setIsConnected(false);
-      useAppStore.getState().setConnectionError('시그널링 서버 연결 대기 중...');
+    socket.on('connect_error', () => {
+      if (!this.useCloudBusMode) {
+        useAppStore.getState().setIsConnected(false);
+        useAppStore.getState().setConnectionError('시그널링 서버 연결 대기 중...');
+      }
     });
 
     socket.on('signaling', (message: SignalingMessage) => {
@@ -84,6 +104,282 @@ class WebRTCManager {
 
     this.socket = socket;
     return socket;
+  }
+
+  private async joinViaCloudBus(payload: JoinPayload): Promise<{
+    success: boolean;
+    meeting?: Meeting;
+    user?: User;
+    error?: { code: string; message: string };
+  }> {
+    this.useCloudBusMode = true;
+    cloudBus.start();
+
+    const meetingId = (payload.meetingId || '').trim().toUpperCase();
+    const myId = `mob-${uuidv4().slice(0, 10)}`;
+    const user: User = {
+      id: myId,
+      name: (payload.userName || '').trim() || '참가자',
+      userCode: getOrCreateUserCode(),
+      platform: detectDevicePlatform(),
+      audioEnabled: payload.audioEnabled,
+      videoEnabled: payload.videoEnabled,
+      screenSharing: false,
+      isHost: false,
+      joinedAt: Date.now(),
+    };
+
+    const requestId = uuidv4();
+    let joinResolver:
+      | ((res: {
+          success: boolean;
+          meeting?: Meeting;
+          assignedUserName?: string;
+          error?: ErrorPayload;
+        }) => void)
+      | null = null;
+
+    if (this.cloudCleanup) {
+      this.cloudCleanup();
+      this.cloudCleanup = null;
+    }
+
+    this.cloudCleanup = cloudBus.onPacket((pkt: UniversalBridgePacket) => {
+      const pktMeeting = (pkt.meetingId || '').trim().toUpperCase();
+
+      if (pkt.type === 'bridge-join-res' && pktMeeting === meetingId) {
+        const { requestId: resReqId, success, meeting, assignedUserName, error } = pkt.data || {};
+        if (resReqId === requestId && joinResolver) {
+          const r = joinResolver;
+          joinResolver = null;
+          r({ success, meeting, assignedUserName, error });
+        }
+        return;
+      }
+
+      if (!this.currentMeetingId || pktMeeting !== this.currentMeetingId) {
+        if (pkt.type !== 'bridge-pdf-chunk' && pkt.type !== 'bridge-pdf-pull') {
+          return;
+        }
+      }
+
+      switch (pkt.type) {
+        case 'bridge-join-req': {
+          const localMeeting = useAppStore.getState().currentMeeting;
+          if (!localMeeting || localMeeting.id !== meetingId) return;
+          const { requestId: incomingReqId, user: joiningUser, password } = pkt.data || {};
+          if (localMeeting.settings.password && localMeeting.settings.password !== password) {
+            cloudBus.sendPacket('bridge-join-res', meetingId, {
+              requestId: incomingReqId,
+              success: false,
+              error: { code: 'INVALID_PASSWORD', message: '잘못된 회의 비밀번호입니다.' },
+            });
+            return;
+          }
+          const remoteUser: User = { ...joiningUser, isHost: false };
+          useAppStore.getState().addParticipant(remoteUser);
+          const updatedMeeting = useAppStore.getState().currentMeeting || localMeeting;
+
+          cloudBus.sendPacket('bridge-join-res', meetingId, {
+            requestId: incomingReqId,
+            success: true,
+            meeting: updatedMeeting,
+            assignedUserName: remoteUser.name,
+          });
+
+          this.handleSignalingMessage({
+            type: 'user-joined',
+            payload: { user: remoteUser },
+            from: remoteUser.id,
+            meetingId,
+            timestamp: Date.now(),
+          });
+          break;
+        }
+
+        case 'bridge-user-joined':
+        case 'bridge-room-sync': {
+          const remoteMeeting = pkt.data?.meeting as Meeting | undefined;
+          const localMeeting = useAppStore.getState().currentMeeting;
+          if (!localMeeting || !remoteMeeting) return;
+
+          if (
+            (remoteMeeting.hostUpdatedAt || 0) > (localMeeting.hostUpdatedAt || 0) &&
+            remoteMeeting.hostId &&
+            remoteMeeting.hostId !== localMeeting.hostId
+          ) {
+            useAppStore.getState().transferHost(remoteMeeting.hostId);
+          } else if (
+            !remoteMeeting.hostUpdatedAt &&
+            !localMeeting.hostUpdatedAt &&
+            remoteMeeting.createdAt < localMeeting.createdAt &&
+            remoteMeeting.hostId &&
+            remoteMeeting.hostId !== localMeeting.hostId
+          ) {
+            useAppStore.getState().transferHost(remoteMeeting.hostId);
+          }
+
+          for (const rp of remoteMeeting.participants || []) {
+            if (rp.id === this.currentUserId) continue;
+            const exists = useAppStore
+              .getState()
+              .currentMeeting?.participants.some((p) => p.id === rp.id);
+            if (!exists) {
+              useAppStore.getState().addParticipant(rp);
+              this.initiateOffer(rp.id);
+            }
+          }
+          break;
+        }
+
+        case 'bridge-signaling': {
+          const msg = pkt.data?.message as SignalingMessage | undefined;
+          if (!msg || msg.from === this.currentUserId) return;
+          if (msg.to && msg.to !== this.currentUserId) return;
+          this.handleSignalingMessage(msg);
+          break;
+        }
+
+        case 'bridge-user-left': {
+          const { userId, newHostId } = (pkt.data || {}) as { userId: string; newHostId?: string };
+          if (userId) {
+            this.closePeerConnection(userId);
+            useAppStore.getState().removeParticipant(userId);
+          }
+          if (newHostId) {
+            useAppStore.getState().transferHost(newHostId);
+          }
+          break;
+        }
+
+        case 'bridge-pdf-chunk': {
+          this.handleSignalingMessage({
+            type: 'pdf-chunk',
+            payload: pkt.data,
+            from: 'bridge',
+            meetingId: this.currentMeetingId || meetingId,
+            timestamp: Date.now(),
+          });
+          break;
+        }
+
+        case 'bridge-pdf-pull': {
+          const { pdfId: reqPdfId } = (pkt.data || {}) as { pdfId?: string };
+          if (
+            this.localSharedPdfBuffer &&
+            (!reqPdfId || !this.localSharedPdfId || reqPdfId === this.localSharedPdfId)
+          ) {
+            this.broadcastPdfBuffer(
+              this.localSharedPdfId || reqPdfId || uuidv4(),
+              this.localSharedPdfBuffer
+            );
+          }
+          break;
+        }
+      }
+    });
+
+    // Query existing hosts on Cloud/LAN Bus
+    const remoteRes = await new Promise<{
+      success: boolean;
+      meeting?: Meeting;
+      assignedUserName?: string;
+      error?: ErrorPayload;
+    } | null>((resolveJoin) => {
+      const timer = setTimeout(() => {
+        joinResolver = null;
+        resolveJoin(null);
+      }, 950);
+
+      joinResolver = (res) => {
+        clearTimeout(timer);
+        resolveJoin(res);
+      };
+
+      cloudBus.sendPacket('bridge-join-req', meetingId, {
+        requestId,
+        user,
+        password: payload.password,
+      });
+    });
+
+    if (remoteRes && !remoteRes.success) {
+      return {
+        success: false,
+        error: remoteRes.error || {
+          code: 'INVALID_PASSWORD',
+          message: '잘못된 회의 비밀번호입니다.',
+        },
+      };
+    }
+
+    let meeting: Meeting;
+    if (remoteRes?.meeting) {
+      if (remoteRes.assignedUserName) {
+        user.name = remoteRes.assignedUserName;
+      }
+      const participants = remoteRes.meeting.participants.some((p) => p.id === user.id)
+        ? remoteRes.meeting.participants
+        : [...remoteRes.meeting.participants, user];
+      meeting = {
+        ...remoteRes.meeting,
+        participants,
+      };
+    } else {
+      user.isHost = true;
+      meeting = {
+        id: meetingId,
+        name: `Meeting ${meetingId.slice(0, 8)}`,
+        hostId: user.id,
+        participants: [user],
+        createdAt: Date.now(),
+        settings: {
+          allowScreenShare: true,
+          allowChat: true,
+          allowRecording: false,
+          muteOnEntry: false,
+          videoOnEntry: true,
+          password: payload.password,
+        },
+      };
+    }
+
+    this.currentMeetingId = meeting.id;
+    this.currentUserId = user.id;
+    useAppStore.getState().setIsConnected(true);
+    useAppStore.getState().setConnectionError(null);
+
+    cloudBus.sendPacket('bridge-user-joined', meeting.id, {
+      user,
+      meeting,
+    });
+
+    if (this.cloudRoomSyncTimer) clearInterval(this.cloudRoomSyncTimer);
+    this.cloudRoomSyncTimer = setInterval(() => {
+      const curMeeting = useAppStore.getState().currentMeeting;
+      if (curMeeting && curMeeting.id === this.currentMeetingId) {
+        cloudBus.sendPacket('bridge-room-sync', curMeeting.id, { meeting: curMeeting });
+      }
+    }, 3000);
+
+    const existingPeers = (meeting.participants || []).filter(
+      (p) => p.id && p.id !== user.id
+    );
+    if (existingPeers.length > 0) {
+      setTimeout(() => {
+        for (const peer of existingPeers) {
+          if (!this.peerConnections.has(peer.id) && this.currentMeetingId === meeting.id) {
+            this.initiateOffer(peer.id);
+          }
+        }
+      }, 500);
+    }
+
+    return {
+      success: true,
+      meeting,
+      user,
+    };
   }
 
   public async joinMeeting(payload: JoinPayload): Promise<{
@@ -101,16 +397,26 @@ class WebRTCManager {
       // Fallback to default RTC_CONFIGURATION
     }
 
+    const enrichedPayload: JoinPayload = {
+      ...payload,
+      userCode: getOrCreateUserCode(),
+      platform: detectDevicePlatform(),
+    };
+
+    const targetUrl = useAppStore.getState().signalingUrl || DEFAULT_SIGNALING_URL;
+
+    // On Mobile / Web without an explicit remote Socket.IO server, connect directly via Cloud Bus!
+    if (!isElectron() && (targetUrl === DEFAULT_SIGNALING_URL || targetUrl.includes('127.0.0.1'))) {
+      return this.joinViaCloudBus(enrichedPayload);
+    }
+
+    this.useCloudBusMode = false;
     let socket = this.ensureSocket();
 
     if (!socket.connected) {
-      const targetUrl = useAppStore.getState().signalingUrl || DEFAULT_SIGNALING_URL;
       const connected = await new Promise<boolean>((resolve) => {
-        const timeoutMs = targetUrl !== DEFAULT_SIGNALING_URL ? 1500 : 5000;
-        const timer = setTimeout(() => {
-          resolve(false);
-        }, timeoutMs);
-
+        const timeoutMs = targetUrl !== DEFAULT_SIGNALING_URL ? 1600 : 4500;
+        const timer = setTimeout(() => resolve(false), timeoutMs);
         socket.once('connect', () => {
           clearTimeout(timer);
           resolve(true);
@@ -118,21 +424,27 @@ class WebRTCManager {
       });
 
       if (!connected) {
+        if (!isElectron()) {
+          // Mobile/Web fallback to Cloud Bus if custom LAN server is unreachable
+          return this.joinViaCloudBus(enrichedPayload);
+        }
         if (targetUrl !== DEFAULT_SIGNALING_URL) {
-          console.log('[WebRTC] Remote signaling URL unreachable, falling back to local Cross-PC Bridge server (localhost:3002)');
           useAppStore.getState().setSignalingUrl(DEFAULT_SIGNALING_URL);
           socket = this.ensureSocket();
           if (!socket.connected) {
-            await new Promise<void>((resolve, reject) => {
-              const timer = setTimeout(() => reject(new Error('시그널링 서버 연결 시간 초과')), 4000);
+            const localOk = await new Promise<boolean>((resolve) => {
+              const timer = setTimeout(() => resolve(false), 3000);
               socket.once('connect', () => {
                 clearTimeout(timer);
-                resolve();
+                resolve(true);
               });
             });
+            if (!localOk) {
+              return this.joinViaCloudBus(enrichedPayload);
+            }
           }
         } else {
-          throw new Error('시그널링 서버 연결 시간 초과');
+          return this.joinViaCloudBus(enrichedPayload);
         }
       }
     }
@@ -140,7 +452,7 @@ class WebRTCManager {
     return new Promise((resolve) => {
       socket.emit(
         'join',
-        payload,
+        enrichedPayload,
         (response: {
           success: boolean;
           meetingState?: MeetingStatePayload;
@@ -153,7 +465,6 @@ class WebRTCManager {
             useAppStore.getState().setIsConnected(true);
             useAppStore.getState().setConnectionError(null);
 
-            // Ensure WebRTC connections are initiated with any existing participants
             const existingPeers = (meeting.participants || []).filter(
               (p: any) => p.id && p.id !== currentUser.id
             );
@@ -190,8 +501,6 @@ class WebRTCManager {
     const { currentMeeting, currentUser } = useAppStore.getState();
     if (!currentMeeting || !currentUser) return;
 
-    // Note: Existing participants will send offers to us upon 'user-joined',
-    // or if we already received offers while in PreJoinScreen, syncLocalStream will attach our tracks.
     const localStream = useAppStore.getState().localStream;
     if (localStream) {
       await this.syncLocalStream(localStream);
@@ -204,11 +513,9 @@ class WebRTCManager {
       return existing;
     }
 
-    console.log(`[WebRTC] Creating RTCPeerConnection for peer: ${peerId}`);
     const pc = new RTCPeerConnection(this.rtcConfig);
     this.peerConnections.set(peerId, pc);
 
-    // Attach local tracks if available
     const { localStream, screenStream, isScreenSharing } = useAppStore.getState();
     if (localStream) {
       const audioTrack = localStream.getAudioTracks()[0];
@@ -222,7 +529,10 @@ class WebRTCManager {
           : localStream.getVideoTracks()[0];
 
       if (activeVideoTrack) {
-        pc.addTrack(activeVideoTrack, isScreenSharing && screenStream ? screenStream : localStream);
+        pc.addTrack(
+          activeVideoTrack,
+          isScreenSharing && screenStream ? screenStream : localStream
+        );
       }
     }
 
@@ -243,7 +553,6 @@ class WebRTCManager {
     };
 
     pc.ontrack = (event) => {
-      console.log(`[WebRTC] Received remote track (${event.track.kind}) from ${peerId}`);
       let stream = this.remoteStreams.get(peerId);
       if (event.streams && event.streams[0]) {
         stream = event.streams[0];
@@ -260,13 +569,6 @@ class WebRTCManager {
       useAppStore.getState().setRemoteStream(peerId, stream);
     };
 
-    pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] Peer ${peerId} connection state: ${pc.connectionState}`);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-        // Keep participant in list until signaling says they left, or clean up if closed
-      }
-    };
-
     return pc;
   }
 
@@ -276,17 +578,23 @@ class WebRTCManager {
         const { user } = message.payload as UserJoinedPayload;
         if (!user || user.id === this.currentUserId) return;
 
-        console.log(`[WebRTC] User joined: ${user.name} (${user.id})`);
         useAppStore.getState().addParticipant(user);
-
-        // Initiate WebRTC offer to the newly joined user
         await this.initiateOffer(user.id);
 
-        // If we are currently hosting a collaborative share session, sync it to the new user
         const { shareSession, whiteboardStrokes } = useAppStore.getState();
-        if (shareSession && shareSession.ownerId === this.currentUserId && this.currentMeetingId) {
+        if (
+          shareSession &&
+          shareSession.ownerId === this.currentUserId &&
+          this.currentMeetingId
+        ) {
           if (shareSession.mode === 'pdf') {
-            fetch('http://127.0.0.1:3001/shared-pdf-rebroadcast', { method: 'POST' }).catch(() => {});
+            if (isElectron()) {
+              fetch('http://127.0.0.1:3001/shared-pdf-rebroadcast', { method: 'POST' }).catch(
+                () => {}
+              );
+            } else if (this.localSharedPdfBuffer && this.localSharedPdfId) {
+              this.broadcastPdfBuffer(this.localSharedPdfId, this.localSharedPdfBuffer);
+            }
           }
           this.sendSignalingMessage({
             type: 'share-state',
@@ -310,7 +618,6 @@ class WebRTCManager {
 
       case 'user-left': {
         const { userId } = message.payload as UserLeftPayload;
-        console.log(`[WebRTC] User left: ${userId}`);
         this.closePeerConnection(userId);
         useAppStore.getState().removeParticipant(userId);
         break;
@@ -321,16 +628,12 @@ class WebRTCManager {
         const peerId = message.from;
         if (!peerId || !sdp) return;
 
-        console.log(`[WebRTC] Received offer from ${peerId}`);
         const pc = this.createPeerConnection(peerId);
         const isPolite = (this.currentUserId || '') < peerId;
 
         try {
           if (pc.signalingState !== 'stable') {
-            if (!isPolite) {
-              console.log(`[WebRTC] Ignoring colliding offer from ${peerId} (impolite peer)`);
-              return;
-            }
+            if (!isPolite) return;
             await Promise.all([
               pc.setLocalDescription({ type: 'rollback' }),
               pc.setRemoteDescription(new RTCSessionDescription(sdp)),
@@ -368,7 +671,6 @@ class WebRTCManager {
         const peerId = message.from;
         if (!peerId || !sdp) return;
 
-        console.log(`[WebRTC] Received answer from ${peerId}`);
         const pc = this.peerConnections.get(peerId);
         if (!pc) return;
 
@@ -390,9 +692,7 @@ class WebRTCManager {
         if (pc && pc.remoteDescription && pc.remoteDescription.type) {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          } catch (err) {
-            console.error(`[WebRTC] Error adding ICE candidate from ${peerId}:`, err);
-          }
+          } catch {}
         } else {
           const queue = this.pendingCandidates.get(peerId) || [];
           queue.push(candidate);
@@ -405,7 +705,6 @@ class WebRTCManager {
         const { userId, updates } = message.payload as UserUpdatedPayload;
         useAppStore.getState().updateParticipant(userId, updates);
 
-        // If the server updated our own user (e.g., host muted us or transferred host role)
         if (userId === this.currentUserId) {
           useAppStore.getState().updateCurrentUser(updates);
           if (typeof updates.audioEnabled === 'boolean') {
@@ -441,13 +740,17 @@ class WebRTCManager {
         const prevSession = useAppStore.getState().shareSession;
         if (!session) {
           if (prevSession?.ownerId) {
-            useAppStore.getState().updateParticipant(prevSession.ownerId, { screenSharing: false });
+            useAppStore.getState().updateParticipant(prevSession.ownerId, {
+              screenSharing: false,
+            });
           }
           if (useAppStore.getState().isScreenSharing) {
             useAppStore.getState().setIsScreenSharing(false);
           }
-        } else if (session.ownerId !== this.currentUserId && useAppStore.getState().isScreenSharing) {
-          // Another participant took over the collaboration stage
+        } else if (
+          session.ownerId !== this.currentUserId &&
+          useAppStore.getState().isScreenSharing
+        ) {
           useAppStore.getState().setIsScreenSharing(false);
         }
         useAppStore.getState().setShareSession(session);
@@ -479,10 +782,20 @@ class WebRTCManager {
               for (let i = 0; i < binaryStr.length; i++) {
                 bytes[i] = binaryStr.charCodeAt(i);
               }
-              fetch(`http://127.0.0.1:3001/shared-pdf-cache?pdfId=${encodeURIComponent(pdfId)}`, {
-                method: 'POST',
-                body: bytes.buffer,
-              }).catch(() => {});
+              const blobUrl = URL.createObjectURL(
+                new Blob([bytes], { type: 'application/pdf' })
+              );
+              useAppStore.getState().setSharedPdfBlobUrl(pdfId, blobUrl);
+
+              if (isElectron()) {
+                fetch(
+                  `http://127.0.0.1:3001/shared-pdf-cache?pdfId=${encodeURIComponent(pdfId)}`,
+                  {
+                    method: 'POST',
+                    body: bytes.buffer,
+                  }
+                ).catch(() => {});
+              }
             } catch {
               // ignore decode error
             }
@@ -519,18 +832,66 @@ class WebRTCManager {
           fromName?: string;
           message: string;
           timestamp?: number;
+          to?: string;
           isPrivate?: boolean;
+          attachment?: ChatAttachment;
         };
         const participants = useAppStore.getState().currentMeeting?.participants || [];
-        const sender = participants.find((p) => p.id === payload.from);
+        const sender = participants.find((p) => p.id === (payload.from || message.from));
         useAppStore.getState().addMessage({
           id: payload.id || `${Date.now()}-${Math.random()}`,
-          from: payload.from,
+          from: payload.from || message.from,
           fromName: payload.fromName || sender?.name || '참가자',
-          message: payload.message,
+          message: payload.message || '',
           timestamp: payload.timestamp || message.timestamp || Date.now(),
+          to: payload.to,
           isPrivate: payload.isPrivate,
+          attachment: payload.attachment,
         });
+        break;
+      }
+
+      case 'chat-file-chunk': {
+        const data = (message.payload || {}) as ChatFileChunkPayload;
+        if (
+          !data.messageId ||
+          typeof data.chunkIndex !== 'number' ||
+          !data.totalChunks ||
+          !data.chunkBase64
+        ) {
+          break;
+        }
+        let entry = this.incomingChatFiles.get(data.messageId);
+        if (!entry) {
+          entry = {
+            messageId: data.messageId,
+            mimeType: data.mimeType || 'application/octet-stream',
+            chunks: new Array(data.totalChunks).fill(''),
+            received: 0,
+            total: data.totalChunks,
+          };
+          this.incomingChatFiles.set(data.messageId, entry);
+        }
+        if (!entry.chunks[data.chunkIndex]) {
+          entry.chunks[data.chunkIndex] = data.chunkBase64;
+          entry.received += 1;
+          const pct = Math.round((entry.received / entry.total) * 100);
+          if (entry.received === entry.total) {
+            const fullB64 = entry.chunks.join('');
+            const dataUrl = `data:${entry.mimeType};base64,${fullB64}`;
+            this.incomingChatFiles.delete(data.messageId);
+            useAppStore.getState().updateMessageAttachment(data.messageId, {
+              progress: 100,
+              isComplete: true,
+              dataUrl,
+            });
+          } else {
+            useAppStore.getState().updateMessageAttachment(data.messageId, {
+              progress: pct,
+              isComplete: false,
+            });
+          }
+        }
         break;
       }
 
@@ -551,7 +912,6 @@ class WebRTCManager {
   private async initiateOffer(peerId: string): Promise<void> {
     const pc = this.createPeerConnection(peerId);
     try {
-      // Ensure transceivers exist even if local user has no camera/mic so we can receive remote audio/video
       if (pc.getTransceivers().length === 0) {
         pc.addTransceiver('audio', { direction: 'sendrecv' });
         pc.addTransceiver('video', { direction: 'sendrecv' });
@@ -586,9 +946,7 @@ class WebRTCManager {
     for (const candidate of candidates) {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.error(`[WebRTC] Failed to flush ICE candidate for ${peerId}:`, err);
-      }
+      } catch {}
     }
   }
 
@@ -612,7 +970,10 @@ class WebRTCManager {
         );
         if (audioTransceiver) {
           await audioTransceiver.sender.replaceTrack(audioTrack);
-          if (audioTransceiver.direction === 'recvonly' || audioTransceiver.direction === 'inactive') {
+          if (
+            audioTransceiver.direction === 'recvonly' ||
+            audioTransceiver.direction === 'inactive'
+          ) {
             audioTransceiver.direction = 'sendrecv';
             needsRenegotiation = true;
           }
@@ -628,7 +989,10 @@ class WebRTCManager {
         );
         if (videoTransceiver) {
           await videoTransceiver.sender.replaceTrack(videoTrack);
-          if (videoTransceiver.direction === 'recvonly' || videoTransceiver.direction === 'inactive') {
+          if (
+            videoTransceiver.direction === 'recvonly' ||
+            videoTransceiver.direction === 'inactive'
+          ) {
             videoTransceiver.direction = 'sendrecv';
             needsRenegotiation = true;
           }
@@ -654,14 +1018,46 @@ class WebRTCManager {
     }
   }
 
+  public async switchCamera(): Promise<void> {
+    const currentMode = useAppStore.getState().cameraFacingMode;
+    const nextMode = currentMode === 'user' ? 'environment' : 'user';
+    try {
+      const { localStream, videoEnabled } = useAppStore.getState();
+      localStream?.getVideoTracks().forEach((t) => t.stop());
+
+      const newVideoStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: nextMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+      const newVideoTrack = newVideoStream.getVideoTracks()[0];
+      if (!newVideoTrack) return;
+      newVideoTrack.enabled = videoEnabled;
+
+      const audioTracks = localStream ? localStream.getAudioTracks() : [];
+      const nextStream = new MediaStream([...audioTracks, newVideoTrack]);
+
+      useAppStore.getState().setCameraFacingMode(nextMode);
+      useAppStore.getState().setLocalStream(nextStream);
+      await this.syncLocalStream(nextStream);
+    } catch (err) {
+      console.error('[WebRTC] Failed to switch camera:', err);
+    }
+  }
+
   public async setLocalAudioEnabled(enabled: boolean): Promise<void> {
     useAppStore.getState().setAudioEnabled(enabled);
     let { localStream } = useAppStore.getState();
 
-    // If enabling audio and no active audio track exists yet, acquire one
     if (enabled && (!localStream || localStream.getAudioTracks().length === 0)) {
       try {
-        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false,
+        });
         const newAudioTrack = audioStream.getAudioTracks()[0];
         if (newAudioTrack) {
           newAudioTrack.enabled = true;
@@ -672,9 +1068,7 @@ class WebRTCManager {
           localStream = nextStream;
           await this.syncLocalStream(nextStream);
         }
-      } catch {
-        // ignore if mic hardware unavailable
-      }
+      } catch {}
     }
 
     if (localStream) {
@@ -683,7 +1077,6 @@ class WebRTCManager {
       });
     }
 
-    // Also update all active RTCRtpSenders for audio
     for (const pc of this.peerConnections.values()) {
       for (const sender of pc.getSenders()) {
         if (sender.track && sender.track.kind === 'audio') {
@@ -697,12 +1090,14 @@ class WebRTCManager {
 
   public async setLocalVideoEnabled(enabled: boolean): Promise<void> {
     useAppStore.getState().setVideoEnabled(enabled);
-    let { localStream, isScreenSharing } = useAppStore.getState();
+    let { localStream, isScreenSharing, cameraFacingMode } = useAppStore.getState();
 
-    // If enabling video and no active video track exists yet, acquire one
     if (enabled && (!localStream || localStream.getVideoTracks().length === 0)) {
       try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: cameraFacingMode },
+        });
         const newVideoTrack = videoStream.getVideoTracks()[0];
         if (newVideoTrack) {
           newVideoTrack.enabled = true;
@@ -713,9 +1108,7 @@ class WebRTCManager {
           localStream = nextStream;
           await this.syncLocalStream(nextStream);
         }
-      } catch {
-        // ignore if camera hardware unavailable
-      }
+      } catch {}
     }
 
     if (localStream) {
@@ -724,7 +1117,6 @@ class WebRTCManager {
       });
     }
 
-    // Also update all active RTCRtpSenders for camera video (when not screen sharing)
     if (!isScreenSharing) {
       for (const pc of this.peerConnections.values()) {
         for (const sender of pc.getSenders()) {
@@ -738,8 +1130,10 @@ class WebRTCManager {
     this.broadcastUserUpdate({ videoEnabled: enabled });
   }
 
-  public broadcastUserUpdate(updates: Partial<{ audioEnabled: boolean; videoEnabled: boolean; screenSharing: boolean }>): void {
-    if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
+  public broadcastUserUpdate(
+    updates: Partial<{ audioEnabled: boolean; videoEnabled: boolean; screenSharing: boolean }>
+  ): void {
+    if (!this.currentMeetingId || !this.currentUserId) return;
 
     this.sendSignalingMessage({
       type: 'user-updated',
@@ -754,6 +1148,13 @@ class WebRTCManager {
   }
 
   public async startScreenShare(withAudio = true): Promise<boolean> {
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+      alert(
+        '현재 모바일 기기에서는 전체 화면 캡처 대신 전자칠판 · PDF 문서 · 사진/슬라이드 · 동영상 공유를 이용하실 수 있습니다.'
+      );
+      return false;
+    }
+
     try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
@@ -787,7 +1188,6 @@ class WebRTCManager {
         this.broadcastShareSession(session);
       }
 
-      // Replace outgoing video (and audio if system audio is captured) on all peer connections
       const sysAudioTrack = screenStream.getAudioTracks()[0];
       for (const [peerId, pc] of this.peerConnections.entries()) {
         const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video');
@@ -908,7 +1308,7 @@ class WebRTCManager {
   }
 
   public broadcastShareSession(session: ShareSessionState | null): void {
-    if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
+    if (!this.currentMeetingId || !this.currentUserId) return;
     this.sendSignalingMessage({
       type: 'share-state',
       payload: session,
@@ -918,8 +1318,22 @@ class WebRTCManager {
     });
   }
 
+  public requestPdfPull(pdfId: string): void {
+    if (this.useCloudBusMode && this.currentMeetingId) {
+      cloudBus.sendPacket('bridge-pdf-pull', this.currentMeetingId, { pdfId });
+    }
+  }
+
   public broadcastPdfBuffer(pdfId: string, ab: ArrayBuffer): void {
-    if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
+    this.localSharedPdfId = pdfId;
+    this.localSharedPdfBuffer = ab;
+
+    try {
+      const localBlobUrl = URL.createObjectURL(new Blob([ab], { type: 'application/pdf' }));
+      useAppStore.getState().setSharedPdfBlobUrl(pdfId, localBlobUrl);
+    } catch {}
+
+    if (!this.currentMeetingId || !this.currentUserId) return;
     try {
       const bytes = new Uint8Array(ab);
       let binary = '';
@@ -936,20 +1350,29 @@ class WebRTCManager {
       for (let i = 0; i < totalChunks; i++) {
         const chunkBase64 = fullBase64.slice(i * CHUNK_LEN, (i + 1) * CHUNK_LEN);
         setTimeout(() => {
-          if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
-          this.sendSignalingMessage({
-            type: 'pdf-chunk',
-            payload: {
+          if (!this.currentMeetingId || !this.currentUserId) return;
+          if (this.useCloudBusMode) {
+            cloudBus.sendPacket('bridge-pdf-chunk', this.currentMeetingId, {
               pdfId,
               chunkIndex: i,
               totalChunks,
               chunkBase64,
-            },
-            from: this.currentUserId,
-            meetingId: this.currentMeetingId,
-            timestamp: Date.now(),
-          });
-        }, i * 6);
+            });
+          } else {
+            this.sendSignalingMessage({
+              type: 'pdf-chunk',
+              payload: {
+                pdfId,
+                chunkIndex: i,
+                totalChunks,
+                chunkBase64,
+              },
+              from: this.currentUserId,
+              meetingId: this.currentMeetingId,
+              timestamp: Date.now(),
+            });
+          }
+        }, i * 10);
       }
     } catch (err) {
       console.error('[WebRTC] Failed to broadcast PDF chunks:', err);
@@ -958,7 +1381,7 @@ class WebRTCManager {
 
   public sendWhiteboardStroke(stroke: WhiteboardStroke): void {
     useAppStore.getState().addWhiteboardStroke(stroke);
-    if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
+    if (!this.currentMeetingId || !this.currentUserId) return;
     this.sendSignalingMessage({
       type: 'whiteboard-draw',
       payload: stroke,
@@ -970,7 +1393,7 @@ class WebRTCManager {
 
   public clearWhiteboard(): void {
     useAppStore.getState().clearWhiteboardStrokes();
-    if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
+    if (!this.currentMeetingId || !this.currentUserId) return;
     this.sendSignalingMessage({
       type: 'whiteboard-clear',
       payload: {},
@@ -994,7 +1417,6 @@ class WebRTCManager {
       useAppStore.getState().updateParticipant(targetOwnerId, { screenSharing: false });
     }
 
-    // Restore camera video and mic audio track on all peer connections
     const cameraTrack = localStream?.getVideoTracks()[0] || null;
     const micTrack = localStream?.getAudioTracks()[0] || null;
     for (const pc of this.peerConnections.values()) {
@@ -1024,23 +1446,156 @@ class WebRTCManager {
   }
 
   public sendChatMessage(message: string, to?: string): void {
-    if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
+    if (!this.currentMeetingId || !this.currentUserId) return;
+    const chatId = uuidv4();
+    const timestamp = Date.now();
+    const isPrivate = Boolean(to && to !== 'everyone');
+    const currentUser = useAppStore.getState().currentUser;
+
+    if (this.useCloudBusMode) {
+      // Append locally right away in serverless CloudBus mode
+      useAppStore.getState().addMessage({
+        id: chatId,
+        from: this.currentUserId,
+        fromName: currentUser?.name || '나',
+        message,
+        timestamp,
+        to: isPrivate ? to : undefined,
+        isPrivate,
+      });
+    }
 
     this.sendSignalingMessage({
       type: 'chat',
       payload: {
+        id: chatId,
         message,
-        to: to && to !== 'everyone' ? to : undefined,
+        from: this.currentUserId,
+        fromName: currentUser?.name || '참가자',
+        to: isPrivate ? to : undefined,
+        isPrivate,
+        timestamp,
       },
       from: this.currentUserId,
-      to: to && to !== 'everyone' ? to : undefined,
+      to: isPrivate ? to : undefined,
       meetingId: this.currentMeetingId,
-      timestamp: Date.now(),
+      timestamp,
     });
   }
 
+  public async sendChatFile(file: File, caption = '', to?: string): Promise<void> {
+    if (!this.currentMeetingId || !this.currentUserId) return;
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+
+    const base64Body = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+    const messageId = uuidv4();
+    const fileId = uuidv4();
+    const mimeType = file.type || 'application/octet-stream';
+    const timestamp = Date.now();
+    const isPrivate = Boolean(to && to !== 'everyone');
+    const currentUser = useAppStore.getState().currentUser;
+
+    // Add local message immediately with local dataUrl so sender sees preview & progress
+    useAppStore.getState().addMessage({
+      id: messageId,
+      from: this.currentUserId,
+      fromName: currentUser?.name || '나',
+      message: caption.trim(),
+      timestamp,
+      to: isPrivate ? to : undefined,
+      isPrivate,
+      attachment: {
+        id: fileId,
+        name: file.name,
+        mimeType,
+        size: file.size,
+        dataUrl,
+        progress: 0,
+        isComplete: false,
+      },
+    });
+
+    // Send chat metadata (without large dataUrl) to peers
+    this.sendSignalingMessage({
+      type: 'chat',
+      payload: {
+        id: messageId,
+        message: caption.trim(),
+        from: this.currentUserId,
+        fromName: currentUser?.name || '참가자',
+        to: isPrivate ? to : undefined,
+        isPrivate,
+        timestamp,
+        attachment: {
+          id: fileId,
+          name: file.name,
+          mimeType,
+          size: file.size,
+          progress: 0,
+          isComplete: false,
+        },
+      },
+      from: this.currentUserId,
+      to: isPrivate ? to : undefined,
+      meetingId: this.currentMeetingId,
+      timestamp,
+    });
+
+    const CHUNK_LEN = 22 * 1024;
+    const totalChunks = Math.max(1, Math.ceil(base64Body.length / CHUNK_LEN));
+
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkBase64 = base64Body.slice(i * CHUNK_LEN, (i + 1) * CHUNK_LEN);
+      await new Promise<void>((r) => setTimeout(r, 12));
+      if (!this.currentMeetingId || !this.currentUserId) break;
+
+      const chunkPayload: ChatFileChunkPayload = {
+        messageId,
+        fileId,
+        fileName: file.name,
+        mimeType,
+        fileSize: file.size,
+        chunkIndex: i,
+        totalChunks,
+        chunkBase64,
+        to: isPrivate ? to : undefined,
+      };
+
+      this.sendSignalingMessage({
+        type: 'chat-file-chunk',
+        payload: chunkPayload,
+        from: this.currentUserId,
+        to: isPrivate ? to : undefined,
+        meetingId: this.currentMeetingId,
+        timestamp: Date.now(),
+      });
+
+      const pct = Math.round(((i + 1) / totalChunks) * 100);
+      useAppStore.getState().updateMessageAttachment(messageId, {
+        progress: pct,
+        isComplete: i + 1 === totalChunks,
+      });
+    }
+  }
+
   public muteParticipant(targetUserId: string, muted: boolean): void {
-    if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
+    if (!this.currentMeetingId || !this.currentUserId) return;
+    if (this.useCloudBusMode) {
+      useAppStore.getState().updateParticipant(targetUserId, { audioEnabled: !muted });
+      this.sendSignalingMessage({
+        type: 'user-updated',
+        payload: { userId: targetUserId, updates: { audioEnabled: !muted } },
+        from: this.currentUserId,
+        meetingId: this.currentMeetingId,
+        timestamp: Date.now(),
+      });
+      return;
+    }
 
     this.sendSignalingMessage({
       type: 'mute-user',
@@ -1052,7 +1607,19 @@ class WebRTCManager {
   }
 
   public kickParticipant(targetUserId: string): void {
-    if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
+    if (!this.currentMeetingId || !this.currentUserId) return;
+    if (this.useCloudBusMode) {
+      this.sendSignalingMessage({
+        type: 'error',
+        payload: { code: 'KICKED', message: '호스트에 의해 퇴장되었습니다.' },
+        from: this.currentUserId,
+        to: targetUserId,
+        meetingId: this.currentMeetingId,
+        timestamp: Date.now(),
+      });
+      useAppStore.getState().removeParticipant(targetUserId);
+      return;
+    }
 
     this.sendSignalingMessage({
       type: 'kick-user',
@@ -1065,7 +1632,18 @@ class WebRTCManager {
 
   public transferHost(newHostId: string): void {
     useAppStore.getState().transferHost(newHostId);
-    if (!this.socket || !this.currentMeetingId || !this.currentUserId) return;
+    if (!this.currentMeetingId || !this.currentUserId) return;
+
+    if (this.useCloudBusMode) {
+      this.sendSignalingMessage({
+        type: 'host-changed',
+        payload: { newHostId },
+        from: this.currentUserId,
+        meetingId: this.currentMeetingId,
+        timestamp: Date.now(),
+      });
+      return;
+    }
 
     this.sendSignalingMessage({
       type: 'transfer-host',
@@ -1077,6 +1655,12 @@ class WebRTCManager {
   }
 
   private sendSignalingMessage(message: SignalingMessage): void {
+    if (this.useCloudBusMode) {
+      if (this.currentMeetingId) {
+        cloudBus.sendPacket('bridge-signaling', this.currentMeetingId, { message });
+      }
+      return;
+    }
     this.socket?.emit('signaling', message);
   }
 
@@ -1098,7 +1682,31 @@ class WebRTCManager {
       this.closePeerConnection(peerId);
     }
 
-    if (this.socket && this.socket.connected) {
+    if (this.useCloudBusMode) {
+      if (this.cloudRoomSyncTimer) {
+        clearInterval(this.cloudRoomSyncTimer);
+        this.cloudRoomSyncTimer = null;
+      }
+      if (this.currentMeetingId && this.currentUserId) {
+        const curMeeting = useAppStore.getState().currentMeeting;
+        const remaining = (curMeeting?.participants || []).filter(
+          (p) => p.id !== this.currentUserId
+        );
+        const newHostId =
+          curMeeting?.hostId === this.currentUserId && remaining.length > 0
+            ? remaining[0].id
+            : undefined;
+        cloudBus.sendPacket('bridge-user-left', this.currentMeetingId, {
+          userId: this.currentUserId,
+          newHostId,
+        });
+      }
+      if (this.cloudCleanup) {
+        this.cloudCleanup();
+        this.cloudCleanup = null;
+      }
+      this.useCloudBusMode = false;
+    } else if (this.socket && this.socket.connected) {
       await new Promise<void>((resolve) => {
         this.socket!.emit('leave', {}, () => resolve());
         setTimeout(resolve, 500);

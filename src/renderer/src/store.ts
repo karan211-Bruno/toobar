@@ -1,7 +1,15 @@
 // Zustand store for app state management
 import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
-import type { User, Meeting, MeetingSettings, ShareSessionState, WhiteboardStroke } from '@shared/types';
+import type {
+  User,
+  Meeting,
+  MeetingSettings,
+  ShareSessionState,
+  WhiteboardStroke,
+  ChatMessageItem,
+  ChatAttachment,
+} from '@shared/types';
 
 interface AppState {
   // User state
@@ -40,6 +48,8 @@ interface AppState {
   setVideoEnabled: (value: boolean) => void;
   isScreenSharing: boolean;
   setIsScreenSharing: (value: boolean) => void;
+  cameraFacingMode: 'user' | 'environment';
+  setCameraFacingMode: (mode: 'user' | 'environment') => void;
 
   // Devices
   audioInputDevices: MediaDeviceInfo[];
@@ -58,8 +68,9 @@ interface AppState {
   setSelectedVideoInput: (deviceId: string) => void;
 
   // Chat
-  messages: Array<{ id: string; from: string; fromName: string; message: string; timestamp: number; isPrivate?: boolean }>;
-  addMessage: (message: AppState['messages'][0]) => void;
+  messages: ChatMessageItem[];
+  addMessage: (message: ChatMessageItem) => void;
+  updateMessageAttachment: (messageId: string, updates: Partial<ChatAttachment>) => void;
   clearMessages: () => void;
 
   // Connection
@@ -73,6 +84,8 @@ interface AppState {
   // Collaborative Share (Whiteboard / Presentation / PDF / Media)
   shareSession: ShareSessionState | null;
   setShareSession: (session: ShareSessionState | null) => void;
+  sharedPdfBlobUrls: Record<string, string>;
+  setSharedPdfBlobUrl: (pdfId: string, url: string) => void;
   whiteboardStrokes: WhiteboardStroke[];
   addWhiteboardStroke: (stroke: WhiteboardStroke) => void;
   clearWhiteboardStrokes: () => void;
@@ -97,17 +110,19 @@ const initialState = {
   audioEnabled: true,
   videoEnabled: true,
   isScreenSharing: false,
+  cameraFacingMode: 'user' as const,
   audioInputDevices: [],
   audioOutputDevices: [],
   videoInputDevices: [],
   selectedAudioInput: '',
   selectedAudioOutput: '',
   selectedVideoInput: '',
-  messages: [],
+  messages: [] as ChatMessageItem[],
   signalingUrl: 'http://localhost:3002',
   isConnected: false,
   connectionError: null,
   shareSession: null as ShareSessionState | null,
+  sharedPdfBlobUrls: {} as Record<string, string>,
   whiteboardStrokes: [] as WhiteboardStroke[],
   isRecording: false,
 };
@@ -128,7 +143,10 @@ export const useAppStore = create<AppState>()(
         updateMeetingSettings: (settings) =>
           set((state) => ({
             currentMeeting: state.currentMeeting
-              ? { ...state.currentMeeting, settings: { ...state.currentMeeting.settings, ...settings } }
+              ? {
+                  ...state.currentMeeting,
+                  settings: { ...state.currentMeeting.settings, ...settings },
+                }
               : null,
           })),
         addParticipant: (user) =>
@@ -233,6 +251,7 @@ export const useAppStore = create<AppState>()(
             get().updateParticipant(currentUser.id, { screenSharing: value });
           }
         },
+        setCameraFacingMode: (mode) => set({ cameraFacingMode: mode }),
 
         setMediaDevices: (devices) =>
           set({
@@ -245,7 +264,20 @@ export const useAppStore = create<AppState>()(
         setSelectedVideoInput: (deviceId) => set({ selectedVideoInput: deviceId }),
 
         addMessage: (message) =>
-          set((state) => ({ messages: [...state.messages, message] })),
+          set((state) => {
+            if (state.messages.some((m) => m.id === message.id)) {
+              return { messages: state.messages };
+            }
+            return { messages: [...state.messages, message] };
+          }),
+        updateMessageAttachment: (messageId, updates) =>
+          set((state) => ({
+            messages: state.messages.map((m) =>
+              m.id === messageId && m.attachment
+                ? { ...m, attachment: { ...m.attachment, ...updates } }
+                : m
+            ),
+          })),
         clearMessages: () => set({ messages: [] }),
 
         setSignalingUrl: (url) => set({ signalingUrl: url }),
@@ -253,6 +285,10 @@ export const useAppStore = create<AppState>()(
         setConnectionError: (error) => set({ connectionError: error }),
 
         setShareSession: (session) => set({ shareSession: session }),
+        setSharedPdfBlobUrl: (pdfId, url) =>
+          set((state) => ({
+            sharedPdfBlobUrls: { ...state.sharedPdfBlobUrls, [pdfId]: url },
+          })),
         addWhiteboardStroke: (stroke) =>
           set((state) => ({ whiteboardStrokes: [...state.whiteboardStrokes, stroke] })),
         clearWhiteboardStrokes: () => set({ whiteboardStrokes: [] }),
@@ -281,6 +317,6 @@ export const useAppStore = create<AppState>()(
         }),
       }
     ),
-    { name: 'ZoomClone' }
+    { name: 'ToobarStore' }
   )
 );

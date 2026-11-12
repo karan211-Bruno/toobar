@@ -16,10 +16,10 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["shared/*"]
+      "@shared/*": ["src/shared/*"]
     }
   },
-  "files": ["src/signaling/server.ts", "src/shared/types.ts"],
+  "files": ["src/signaling/server.ts", "src/shared/types.ts", "src/shared/modules.d.ts"],
   "include": ["src/signaling/**/*", "src/shared/**/*"],
   "exclude": ["node_modules", "dist"]
 }
