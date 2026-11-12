@@ -23,6 +23,12 @@ function bumpPlistVersion(plistPath, ver) {
   fs.writeFileSync(plistPath, xml, 'utf8');
 }
 
+console.log('0. Building fresh native macOS Toobar.app via electron-builder...');
+execSync('CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --arm64 --dir', {
+  cwd: rootDir,
+  stdio: 'inherit',
+});
+
 console.log('1. Syncing and signing /Applications/Toobar.app...');
 if (fs.existsSync(sourceApp)) {
   bumpPlistVersion(path.join(sourceApp, 'Contents', 'Info.plist'), version);

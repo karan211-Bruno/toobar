@@ -39,10 +39,10 @@ if (sourceUnpacked !== cleanLinuxUnpacked) {
   cpSync(sourceUnpacked, cleanLinuxUnpacked, { recursive: true });
 }
 
-// Ensure latest app.asar is copied into cleanLinuxUnpacked
-const latestAsar = '/Applications/Toobar.app/Contents/Resources/app.asar';
-if (existsSync(latestAsar)) {
-  cpSync(latestAsar, join(cleanLinuxUnpacked, 'resources/app.asar'));
+// Ensure cleanLinuxUnpacked comes directly from fresh electron-builder Linux output
+const distAsar = join(distElectron, 'linux-unpacked/resources/app.asar');
+if (existsSync(distAsar) && cleanLinuxUnpacked !== join(distElectron, 'linux-unpacked')) {
+  cpSync(distAsar, join(cleanLinuxUnpacked, 'resources/app.asar'));
 }
 
 // Rename ELF binary to toobar-bin and create --no-sandbox wrapper as 'toobar' (and 'zoom-clone' symlink)

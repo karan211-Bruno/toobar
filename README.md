@@ -1,10 +1,27 @@
-# Toobar (투바) v1.1.0
+# Toobar (투바) v1.1.1
 
 **맥북(macOS) · 아이폰(iOS) · 아이패드(iPadOS) · 윈도우(Windows) · 우분투(Ubuntu Linux) · 안드로이드(Android)** 등 6대 모든 플랫폼을 아우르는 통합 화상 회의 · 실시간 문자 메신저 · 파일 공유 프로그램입니다.
 
+- **모바일·태블릿·웹 즉시 실행 주소 (설치 없이 바로 실행 / 홈 화면 추가 PWA)**:
+  👉 **https://karan211-bruno.github.io/toobar/**
+
 ---
 
-## 주요 기능 (v1.1.0)
+## v1.1.1 긴급 패치 내역 (실행 오류 완벽 수정)
+
+1. **macOS 실행 크래시(`Unable to find helper app` / ASAR 무결성 해시 불일치) 해결**:
+   - `electron-builder` 클린 패키징으로 `Toobar.app` 및 내부 `Toobar Helper.app`, `ElectronAsarIntegrity` 해시를 100% 정합성 있게 재빌드하여 설치 즉시 정상 실행되도록 수정했습니다.
+2. **Windows 클린 패키징 및 아이콘 언패킹(`app.asar.unpacked`) 적용**:
+   - 기존 캐시 패치 방식 대신 순정 `win-unpacked` 클린 빌드로 전환하고 작업표시줄·트레이 아이콘 언패킹 처리를 추가했습니다.
+3. **Ubuntu 24.04 LTS 샌드박스 충돌 해결**:
+   - `.deb`뿐만 아니라 `.AppImage` 런처에도 `--no-sandbox --disable-gpu-sandbox` 인자를 기본 내장하여 Ubuntu 22.04 / 24.04에서 즉시 실행됩니다.
+4. **iPhone · iPad · Android 호환성 강화 및 즉시 실행 웹앱(PWA) 지원**:
+   - 구형/최신 모바일 WebView 모두에서 즉시 동작하도록 IIFE 클래식 스크립트 번들로 전환하고, 블루투스 미탑재 Wi-Fi 태블릿에서도 APK가 설치되도록 매니페스트를 개선했습니다.
+   - 특히 Apple 정책상 `.ipa` 직접 설치가 제한되는 **아이폰·아이패드**에서는 Safari로 **https://karan211-bruno.github.io/toobar/** 접속 후 **공유 → 홈 화면에 추가**만 누르면 인증서 작업 없이 즉시 네이티브 앱처럼 실행됩니다.
+
+---
+
+## 주요 기능
 
 ### 1. 회의 전/후 언제나 쓰는 **실시간 문자 메신저 & 파일 공유 (`💬 문자 · 파일`)**
 - 화상 회의에 들어가지 않아도 프로그램을 켜자마자 **Toobar 사용자끼리 실시간으로 문자와 파일을 주고받을 수 있습니다.**
@@ -22,37 +39,28 @@
   - **동영상(MP4/WebM) 및 고음질 음악(MP3/WAV)** 실시간 스트리밍
 - **모바일 카메라 전·후면 전환 (`🔄 카메라 전환`)** 및 **실시간 회의 녹화 (`MediaRecorder`)** 지원
 
-### 3. 서버 설정 없는 하이브리드 글로벌 + 로컬 브리지
-- **데스크톱 ↔ 모바일 완벽 연동**: 데스크톱(TCP MQTT + 로컬 LAN UDP 브로드캐스트)과 모바일(WebSocket Secure MQTT + WebRTC STUN)이 동일한 글로벌 버스를 공유하여 같은 Wi-Fi는 물론 LTE/5G 외부 네트워크에서도 IP 설정 없이 서로 연결됩니다.
-- **무설치 라이브 OTA 업데이트**: 데스크톱 버전에서는 `🔄 업데이트` 버튼 하나로 재설치 없이 최신 버전을 즉시 적용할 수 있습니다.
-
 ---
 
-## 플랫폼별 설치 파일 안내
+## 플랫폼별 설치 및 실행 방법 (필독)
 
 | 플랫폼 | 파일명 | 설치 및 실행 방법 |
 | --- | --- | --- |
-| **macOS (Apple Silicon 맥북/맥)** | `Toobar-1.1.0-arm64.pkg` / `.dmg` / `.zip` | `.pkg` 더블클릭 설치 또는 `.dmg` 내 `⚡ Toobar 원클릭 자동설치.command` 실행 |
-| **iPhone & iPad (iOS / iPadOS 16+)** | `Toobar-1.1.0-iPhone-iPad.ipa` | AltStore / SideStore / Sideloadly / Apple Configurator 또는 `ios/Toobar.xcodeproj` Xcode 빌드 설치 |
-| **Android (스마트폰 / 태블릿)** | `Toobar-1.1.0-android.apk` | 기기에서 `.apk` 파일을 내려받아 바로 설치 (`출처를 알 수 없는 앱 허용` 1회 승인) |
-| **Windows 10 / 11 (64-bit)** | `Toobar Setup 1.1.0.exe` / `Toobar 1.1.0.exe` | 설치형(`Setup`) 실행 또는 무설치 포터블(`Toobar 1.1.0.exe`) 즉시 실행 |
-| **Ubuntu / Debian Linux (64-bit)** | `Toobar_1.1.0_amd64.deb` / `Toobar-1.1.0.AppImage` | `sudo apt install ./Toobar_1.1.0_amd64.deb` 또는 `.AppImage` 실행 권한 부여 후 실행 |
+| **macOS (Apple Silicon 맥북/맥)** | `Toobar-1.1.1-arm64.pkg` *(권장)* / `.dmg` / `.zip` | **권장**: `Toobar-1.1.1-arm64.pkg`를 우클릭 → **열기**로 설치하면 보안 격리 해제까지 자동 완료되어 바로 실행됩니다. (만약 macOS에서 차단 메시지가 뜨면 **시스템 설정 → 개인정보 보호 및 보안 → 없이도 열기** 클릭) |
+| **Windows 10 / 11 (64-bit)** | `Toobar Setup 1.1.1.exe` / `Toobar 1.1.1.exe` | 설치형(`Setup`) 또는 무설치 포터블(`Toobar 1.1.1.exe`) 실행. **Windows의 PC 보호(SmartScreen)** 파란 창이 뜨면 **추가 정보 → 실행**을 클릭하세요. |
+| **Android (스마트폰 / 태블릿)** | `Toobar-1.1.1-android.apk` | 기기에서 `.apk` 파일을 눌러 설치 (**출처를 알 수 없는 앱 설치 허용** 및 Play 프로텍트 **무시하고 설치** 선택) |
+| **iPhone & iPad (iOS / iPadOS)** | **웹앱(PWA)** *(가장 간편)* 또는 `Toobar-1.1.1-iPhone-iPad.ipa` | **방법 1 (즉시 실행 권장)**: Safari에서 `https://karan211-bruno.github.io/toobar/` 접속 → 하단/상단 **공유 버튼 → 홈 화면에 추가** 클릭<br>**방법 2 (.ipa 설치)**: PC/Mac에서 **Sideloadly / AltStore**로 `.ipa` 서명 설치 (아이폰 파일 앱에서 `.ipa`를 직접 누르면 Apple 정책상 실행되지 않습니다) |
+| **Ubuntu / Debian Linux (64-bit)** | `Toobar_1.1.1_amd64.deb` / `Toobar-1.1.1.AppImage` | 터미널에서 `sudo apt install ./Toobar_1.1.1_amd64.deb` 실행 후 `toobar` 실행, 또는 `chmod +x Toobar-1.1.1.AppImage && ./Toobar-1.1.1.AppImage` |
 
 ---
 
 ## 개발 및 전체 플랫폼 빌드 명령어
 
 ```bash
-# 의존성 설치
 npm install
-
-# TypeScript 검증 및 렌더러/메인/OTA 번들 빌드
-npm run build
-
-# 각 플랫폼별 패키지 빌드
+npm run build          # TypeScript 검증 및 렌더러/메인/OTA 번들 빌드
 npm run dist:mac       # macOS (.dmg, .pkg, .zip)
 npm run dist:win       # Windows (Setup .exe, Portable .exe, .zip)
-npm run dist:linux     # Ubuntu (.deb, .tar.gz)
+npm run dist:linux     # Ubuntu (.AppImage, .deb, .tar.gz)
 npm run dist:ios       # iPhone & iPad Universal (.ipa, Simulator .app.zip)
 npm run dist:android   # Android (.apk)
 ```

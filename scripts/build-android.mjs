@@ -78,7 +78,7 @@ const inlineHtml =
   "<script>window.__toobarNativePlatform='android';</script>" +
   '<title>Toobar</title><style>' +
   cssText +
-  '</style></head><body><div id="root"></div><script type="module">' +
+  '</style></head><body><div id="root"></div><script>' +
   safeJs +
   '</script></body></html>';
 
@@ -90,7 +90,7 @@ writeFileSync(
   `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.toobar.app"
-    android:versionCode="110"
+    android:versionCode="111"
     android:versionName="${version}">
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -105,6 +105,7 @@ writeFileSync(
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
     <application
         android:allowBackup="true"

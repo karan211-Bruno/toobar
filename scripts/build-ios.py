@@ -365,7 +365,7 @@ def copy_inlined_web_bundle() -> None:
         '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />'
         "<title>Toobar</title><style>"
         + css_text
-        + '</style></head><body><div id="root"></div><script type="module">'
+        + '</style></head><body><div id="root"></div><script>'
         + safe_js
         + "</script></body></html>"
     )

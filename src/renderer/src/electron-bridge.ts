@@ -83,8 +83,13 @@ interface PlatformInfo {
 }
 
 // Type-safe access to electronAPI
-export const electronAPI = (window as any).electronAPI as ElectronAPI;
-export const platform = (window as any).platform as PlatformInfo;
+export const electronAPI = (typeof window !== 'undefined' ? (window as any).electronAPI : undefined) as ElectronAPI;
+export const platform: PlatformInfo =
+  (typeof window !== 'undefined' && (window as any).platform) || {
+    isMac: false,
+    isWindows: false,
+    isLinux: false,
+  };
 
 // Helper to check if running in Electron
 export const isElectron = () => {

@@ -136,17 +136,23 @@ function updateInfoPlistHash(plistPath, newHash) {
   try {
     let xml = preadFile(plistPath, 'utf8');
     xml = xml.replace(
-      /(<key>Resources\/app\.asar<\/key><dict><key>algorithm<\/key><string>SHA256<\/string><key>hash<\/key><string>)[0-9a-fA-F]+(<\/string>)/,
+      /(<key>Resources\/app\.asar<\/key>\s*<dict>\s*<key>algorithm<\/key>\s*<string>SHA256<\/string>\s*<key>hash<\/key>\s*<string>)[0-9a-fA-F]+(<\/string>)/,
       `$1${newHash}$2`
     );
-    xml = xml.replace(
-      /(<key>CFBundleName<\/key>\s*<string>)[^<]+(<\/string>)/,
-      `$1Toobar$2`
+    const appContentsDir = dirname(plistPath);
+    const hasToobarHelper = existsSync(
+      join(appContentsDir, 'Frameworks/Toobar Helper.app')
     );
-    xml = xml.replace(
-      /(<key>CFBundleDisplayName<\/key>\s*<string>)[^<]+(<\/string>)/,
-      `$1Toobar$2`
-    );
+    if (hasToobarHelper) {
+      xml = xml.replace(
+        /(<key>CFBundleName<\/key>\s*<string>)[^<]+(<\/string>)/,
+        `$1Toobar$2`
+      );
+      xml = xml.replace(
+        /(<key>CFBundleDisplayName<\/key>\s*<string>)[^<]+(<\/string>)/,
+        `$1Toobar$2`
+      );
+    }
     if (!xml.includes('<string>toobar</string>')) {
       if (xml.includes('<string>zoomclone</string>')) {
         xml = xml.replace(
@@ -165,14 +171,11 @@ function updateInfoPlistHash(plistPath, newHash) {
 }
 
 async function updatePackagedAsar() {
-  const candidates = [
-    join(rootDir, 'dist-electron/mac-arm64/Toobar.app/Contents/Resources/app.asar'),
-    join(rootDir, 'dist-electron/mac-arm64/ZoomClone.app/Contents/Resources/app.asar'),
-    '/Applications/Toobar.app/Contents/Resources/app.asar',
-    '/tmp/toobar-win-build/win-unpacked/resources/app.asar',
-  ];
-  const baseAsar = candidates.find((p) => existsSync(p));
-  if (!baseAsar) {
+  // Only hot-patch macOS Toobar.app if it is already a genuine Toobar.app bundle.
+  // Never cross-copy macOS app.asar onto Windows/Linux builds; use electron-builder for clean OS builds.
+  const macToobarApp = join(rootDir, 'dist-electron/mac-arm64/Toobar.app');
+  const baseAsar = join(macToobarApp, 'Contents/Resources/app.asar');
+  if (!existsSync(baseAsar) || !existsSync(join(macToobarApp, 'Contents/MacOS/Toobar'))) {
     return;
   }
 
@@ -201,42 +204,22 @@ async function updatePackagedAsar() {
     }
   }
 
-  console.log('Patching app.asar with latest dist & shared modules...');
+  console.log('Patching macOS Toobar.app app.asar with latest dist & shared modules...');
   const origAsar = preadFile(baseAsar);
   const { newAsarBuf, newHeaderHash } = patchAsarBuffer(origAsar, fileMap);
 
-  const asarTargets = [
-    join(rootDir, 'dist-electron/mac-arm64/Toobar.app/Contents/Resources/app.asar'),
-    join(rootDir, 'dist-electron/win-unpacked/resources/app.asar'),
-    join(rootDir, 'dist-electron/linux-unpacked/resources/app.asar'),
-    '/tmp/toobar-win-build/win-unpacked/resources/app.asar',
-    '/tmp/toobar-linux-build/data/opt/ZoomClone/resources/app.asar',
-    '/tmp/toobar-linux-build/linux-unpacked/resources/app.asar',
-    '/Applications/ZoomClone.app/Contents/Resources/app.asar',
-    '/Applications/Toobar.app/Contents/Resources/app.asar',
-  ];
+  writeFileSync(baseAsar, newAsarBuf);
+  updateInfoPlistHash(join(macToobarApp, 'Contents/Info.plist'), newHeaderHash);
 
-  for (const target of asarTargets) {
-    if (existsSync(target)) {
-      try {
-        writeFileSync(target, newAsarBuf);
-        console.log(`Updated ${target}`);
-      } catch (err) {
-        console.warn(`Skipped ${target}: ${err.message}`);
-      }
+  if (existsSync('/Applications/Toobar.app/Contents/MacOS/Toobar')) {
+    try {
+      writeFileSync('/Applications/Toobar.app/Contents/Resources/app.asar', newAsarBuf);
+      updateInfoPlistHash('/Applications/Toobar.app/Contents/Info.plist', newHeaderHash);
+      console.log('Updated /Applications/Toobar.app/Contents/Resources/app.asar');
+    } catch (err) {
+      console.warn(`Skipped /Applications/Toobar.app: ${err.message}`);
     }
   }
-
-  updateInfoPlistHash(
-    join(rootDir, 'dist-electron/mac-arm64/ZoomClone.app/Contents/Info.plist'),
-    newHeaderHash
-  );
-  updateInfoPlistHash(
-    join(rootDir, 'dist-electron/mac-arm64/Toobar.app/Contents/Info.plist'),
-    newHeaderHash
-  );
-  updateInfoPlistHash('/Applications/ZoomClone.app/Contents/Info.plist', newHeaderHash);
-  updateInfoPlistHash('/Applications/Toobar.app/Contents/Info.plist', newHeaderHash);
 }
 
 function generateOtaUpdateBundle() {
@@ -275,7 +258,7 @@ function generateOtaUpdateBundle() {
     buildId,
     buildTimestamp: now,
     releaseNotes:
-      'v1.1.0: 맥북·아이폰·아이패드·윈도우·우분투·안드로이드 통합 지원 · 실시간 문자 메신저 및 파일 공유',
+      'v1.1.1: 전 플랫폼(맥북·아이폰·아이패드·윈도우·우분투·안드로이드) 실행 오류 수정 및 모바일 PWA 즉시 실행 지원',
     hash: contentHash,
   };
 
@@ -386,8 +369,8 @@ async function main() {
     entryPoints: [join(rootDir, 'src/renderer/src/main.tsx')],
     bundle: true,
     minify: true,
-    format: 'esm',
-    target: ['es2020'],
+    format: 'iife',
+    target: ['es2019'],
     outfile: join(assetsDir, 'main.js'),
     plugins: [preadPlugin],
     define: {
@@ -395,19 +378,53 @@ async function main() {
     },
   });
 
+  const iconPngSrc = join(rootDir, 'public/icon.png');
+  if (existsSync(iconPngSrc)) {
+    writeFileSync(join(rootDir, 'dist/renderer/icon.png'), preadFile(iconPngSrc));
+  }
+
+  const webManifest = {
+    name: 'Toobar - 화상 회의 · 문자 · 파일 공유',
+    short_name: 'Toobar',
+    description: '맥북·아이폰·아이패드·윈도우·우분투·안드로이드 화상 회의, 문자 메신저 및 파일 공유',
+    start_url: './index.html',
+    display: 'standalone',
+    orientation: 'any',
+    background_color: '#0b0f19',
+    theme_color: '#0b0f19',
+    icons: [
+      {
+        src: './icon.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'any maskable',
+      },
+    ],
+  };
+  writeFileSync(
+    join(rootDir, 'dist/renderer/manifest.webmanifest'),
+    JSON.stringify(webManifest, null, 2),
+    'utf8'
+  );
+
   const html = `<!DOCTYPE html>
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f19" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Toobar" />
+    <link rel="apple-touch-icon" href="./icon.png" />
+    <link rel="icon" type="image/png" href="./icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <title>Toobar - 화상 회의 · 문자 · 파일 공유</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./assets/main.css">
-    <script type="module" src="./assets/main.js"></script>
+    <script defer src="./assets/main.js"></script>
   </head>
   <body>
     <div id="root"></div>

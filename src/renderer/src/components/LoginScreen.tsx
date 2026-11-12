@@ -524,7 +524,7 @@ export function LoginScreen({
         {/* Footer */}
         <div className="mt-5 pt-4 border-t border-border-color flex items-center justify-between text-xs text-muted flex-wrap gap-2">
           <div>
-            <p className="font-medium text-secondary">Toobar v1.1.0</p>
+            <p className="font-medium text-secondary">Toobar v1.1.1</p>
             <p className="mt-0.5">
               Mac · iPhone · iPad · Windows · Ubuntu · Android 통합 지원
             </p>

@@ -409,12 +409,27 @@ if (process.platform !== 'darwin') {
   }
 }
 
-function getWindowIconPath(): string {
-  if (process.platform === 'win32') {
-    const icoPath = join(__dirname, '../../public/icon.ico');
-    if (existsSync(icoPath)) return icoPath;
+function resolvePublicAssetPath(relFile: string): string {
+  const inAsar = join(__dirname, '../../public', relFile);
+  const unpacked = inAsar.replace('app.asar', 'app.asar.unpacked');
+  if (unpacked !== inAsar && existsSync(unpacked)) {
+    return unpacked;
   }
-  return join(__dirname, '../../public/icon.png');
+  return inAsar;
+}
+
+function getWindowIconPath(): string | undefined {
+  try {
+    if (process.platform === 'win32') {
+      const icoPath = resolvePublicAssetPath('icon.ico');
+      if (existsSync(icoPath)) return icoPath;
+    }
+    const pngPath = resolvePublicAssetPath('icon.png');
+    if (existsSync(pngPath)) return pngPath;
+  } catch {
+    // ignore
+  }
+  return undefined;
 }
 
 function createMainWindow(initialInvite?: DeepLinkInvite): BrowserWindow {
@@ -641,7 +656,7 @@ function createAppMenu(): void {
 function createTray(): void {
   const iconPath = getWindowIconPath();
 
-  if (existsSync(iconPath)) {
+  if (iconPath && existsSync(iconPath)) {
     try {
       const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
       tray = new Tray(icon);
@@ -2904,7 +2919,7 @@ ipcMain.handle('show-open-dialog', async (_event, options: Electron.OpenDialogOp
 app.whenReady().then(async () => {
   try {
     if (process.platform === 'darwin' && app.dock) {
-      const dockIconPath = join(__dirname, '../../public/icon.png');
+      const dockIconPath = resolvePublicAssetPath('icon.png');
       if (existsSync(dockIconPath)) {
         const dockImg = nativeImage.createFromPath(dockIconPath);
         if (!dockImg.isEmpty()) {

@@ -1,6 +1,6 @@
 {
   "name": "toobar",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Toobar - Cross-platform video conferencing, messenger & file sharing (macOS, iPhone, iPad, Windows, Ubuntu, Android)",
   "main": "dist/main/index.js",
   "author": "Toobar Team",
@@ -18,11 +18,11 @@
     "build:renderer": "vite build",
     "build:signaling": "tsc -p tsconfig.signaling.json",
     "start": "electron dist/main/index.js",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder",
+    "pack": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
+    "dist": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
     "dist:mac": "node scripts/build-mac-installer.mjs",
-    "dist:win": "electron-builder --win --x64",
-    "dist:linux": "node scripts/build-deb.mjs",
+    "dist:win": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --x64",
+    "dist:linux": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --linux --x64 && node scripts/build-deb.mjs",
     "dist:ios": "python3 scripts/build-ios.py",
     "dist:android": "node scripts/build-android.mjs",
     "dist:all": "npm run build && npm run dist:mac && npm run dist:win && npm run dist:linux && npm run dist:ios && npm run dist:android",
@@ -55,6 +55,9 @@
   "build": {
     "appId": "com.toobar.app",
     "productName": "Toobar",
+    "asarUnpack": [
+      "public/**/*"
+    ],
     "protocols": [
       {
         "name": "Toobar Meeting Link",
@@ -81,11 +84,16 @@
     ],
     "mac": {
       "category": "public.app-category.video",
+      "identity": null,
       "target": [
         "dmg",
         "zip"
       ],
-      "icon": "public/icon.icns"
+      "icon": "public/icon.icns",
+      "extendInfo": {
+        "NSCameraUsageDescription": "화상 회의에서 내 카메라 영상을 상대방에게 전송하기 위해 카메라 접근 권한이 필요합니다.",
+        "NSMicrophoneUsageDescription": "화상 회의에서 음성 대화를 나누기 위해 마이크 접근 권한이 필요합니다."
+      }
     },
     "win": {
       "target": [
@@ -105,8 +113,11 @@
     },
     "linux": {
       "target": [
-        "deb",
         "AppImage"
+      ],
+      "executableArgs": [
+        "--no-sandbox",
+        "--disable-gpu-sandbox"
       ],
       "category": "AudioVideo",
       "maintainer": "Toobar Team <support@toobar.app>",
