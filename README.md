@@ -1,4 +1,4 @@
-# Toobar (투바) v1.1.2
+# Toobar (투바) v1.2.0
 
 **맥북(macOS) · 아이폰(iOS) · 아이패드(iPadOS) · 윈도우(Windows) · 우분투(Ubuntu Linux) · 안드로이드(Android)** 등 6대 모든 플랫폼을 아우르는 통합 화상 회의 · 실시간 문자 메신저 · 파일 공유 프로그램입니다.
 
@@ -7,14 +7,16 @@
 
 ---
 
-## v1.1.2 업데이트 내역 (내부 명칭 100% Toobar 일원화 및 구버전 자동 정리)
+## v1.2.0 주요 업데이트 내역
 
-1. **내부 명칭 · 프로토콜 · 채널 · 저장소 100% `Toobar` 일원화**:
-   - 실행 바이너리(`Toobar`), 번들 ID(`com.toobar.app`), 딥링크 스킴(`toobar://`), 글로벌 클라우드 버스 토픽(`toobar/v2/global_bus`), 로컬 설정 저장소까지 과거 `ZoomClone` 잔재를 완전히 제거하고 `Toobar`로 100% 통일했습니다.
-2. **구버전 `ZoomClone` 잔존 앱 자동 제거 탑재**:
-   - macOS(`.pkg`, `.dmg` 원클릭 설치), Windows(`Setup.exe`), Ubuntu(`.deb`) 설치 시 기존 PC/맥에 남아 있던 구버전 `ZoomClone` 앱과 바로가기를 자동으로 종료·언레지스터·삭제하여 구버전 충돌 팝업이 뜨지 않도록 개선했습니다.
-3. **6대 플랫폼 실행 안정성 검증 완료 (v1.1.1 ~ v1.1.2)**:
-   - macOS(`Toobar Helper` 및 `ElectronAsarIntegrity` 정합성 클린 빌드), Windows(`win-unpacked` 순정 PE 무결성 리소스 및 아이콘 언패킹), Ubuntu 24.04(`--no-sandbox` 내장), iPhone·iPad·Android(IIFE 번들 및 HTTPS PWA) 전 플랫폼 즉시 실행 확인 완료.
+1. **유튜브 함께 보기 & 실시간 공유 설정 (`▶️ 유튜브 함께 보기`)**:
+   - 유튜브 영상 및 재생목록 URL(`youtube.com/watch?v=`, `youtu.be/`, `shorts/`, `live/`, `t=` 시작 시간)을 입력하면 썸네일/제목과 함께 회의 화면에서 **모든 참가자가 동시에 시청**할 수 있습니다.
+   - **공유 설정 제공**: 참가자 재생/탐색 실시간 동기화, 모든 참가자 영상 제어 허용 여부, 자동 재생, 자막(CC) 기본 표시, 반복 재생, 플레이어 컨트롤 표시, 프라이버시 강화 도메인(`youtube-nocookie.com`), 음소거 시작, 기본 음량 및 재생 속도(`0.5x ~ 2x`)를 **설정 → 유튜브 공유**, **공유 시작 창**, **회의 중 실시간 설정 서랍**에서 자유롭게 조절할 수 있습니다.
+   - **영상 위 직접 판서 전환**: 유튜브 영상 조작 모드와 화면 위 펜/형광펜 판서 모드를 원클릭으로 전환할 수 있습니다.
+2. **AI 내 화면 배경 흐리게 처리 & 가상 배경 (`✨ 배경 효과`)**:
+   - MediaPipe AI 인물 분리(`ImageSegmenter`) 엔진을 탑재해 내 모습은 또렷하게 유지하면서 **배경 흐림(약한/보통/강한 흐림 + 4~32px 슬라이더 조절)** 또는 **내장 가상 배경 6종(모던 오피스·서재·노을 바다·숲속 창가·다크 스튜디오·미니멀 브라이트)** 으로 바꿀 수 있습니다.
+   - **내 사진 배경 업로드**: 내 컴퓨터나 휴대폰의 원하는 사진을 업로드하여 가상 배경으로 저장·적용할 수 있습니다.
+   - **실시간 WebRTC 송출**: 설정한 배경 효과가 대기실, 설정 미리보기, 회의 중 하단 툴바(`✨ 배경 효과`)에서 즉시 적용되어 상대방 화면에도 그대로 전송됩니다.
 
 ---
 
@@ -30,11 +32,12 @@
 - **회의 중 파일 공유**: 회의 채팅창에서도 전체 또는 특정 참가자(1:1 비공개)에게 문자와 파일을 전송하고 대화 기록을 `.txt`로 저장할 수 있습니다.
 - **협업 콘텐츠 공유**:
   - 전체 화면 / 앱 창 공유 (시스템 오디오 포함)
+  - **유튜브 함께 보기 & 재생 동기화 / 공유 설정**
   - 실시간 공동 **전자칠판 (화이트보드)** — 아이패드 Apple Pencil 및 스마트폰 터치 판서 완벽 지원
   - **프레젠테이션 슬라이드** 동기화 및 슬라이드 위 판서
   - **PDF 문서 동시 열람** 및 형광펜 판서 (데스크톱 및 모바일 뷰어/다운로드 지원)
   - **동영상(MP4/WebM) 및 고음질 음악(MP3/WAV)** 실시간 스트리밍
-- **모바일 카메라 전·후면 전환 (`🔄 카메라 전환`)** 및 **실시간 회의 녹화 (`MediaRecorder`)** 지원
+- **AI 배경 흐림 / 가상 배경 / 카메라 전·후면 전환 (`🔄 카메라 전환`)** 및 **실시간 회의 녹화 (`MediaRecorder`)** 지원
 
 ---
 
@@ -42,11 +45,11 @@
 
 | 플랫폼 | 파일명 | 설치 및 실행 방법 |
 | --- | --- | --- |
-| **macOS (Apple Silicon 맥북/맥)** | `Toobar-1.1.2-arm64.pkg` *(권장)* / `.dmg` / `.zip` | **권장**: `Toobar-1.1.2-arm64.pkg`를 우클릭 → **열기**로 설치하면 구버전 `ZoomClone.app` 자동 정리 및 보안 격리 해제까지 한 번에 완료되어 바로 실행됩니다. (만약 macOS에서 차단 메시지가 뜨면 **시스템 설정 → 개인정보 보호 및 보안 → 없이도 열기** 클릭) |
-| **Windows 10 / 11 (64-bit)** | `Toobar Setup 1.1.2.exe` / `Toobar 1.1.2.exe` | 설치형(`Setup`) 또는 무설치 포터블(`Toobar 1.1.2.exe`) 실행. **Windows의 PC 보호(SmartScreen)** 파란 창이 뜨면 **추가 정보 → 실행**을 클릭하세요. |
-| **Android (스마트폰 / 태블릿)** | `Toobar-1.1.2-android.apk` | 기기에서 `.apk` 파일을 눌러 설치 (**출처를 알 수 없는 앱 설치 허용** 및 Play 프로텍트 **무시하고 설치** 선택) |
-| **iPhone & iPad (iOS / iPadOS)** | **웹앱(PWA)** *(가장 간편)* 또는 `Toobar-1.1.2-iPhone-iPad.ipa` | **방법 1 (즉시 실행 권장)**: Safari에서 `https://karan211-bruno.github.io/toobar/` 접속 → 하단/상단 **공유 버튼 → 홈 화면에 추가** 클릭<br>**방법 2 (.ipa 설치)**: PC/Mac에서 **Sideloadly / AltStore**로 `.ipa` 서명 설치 (아이폰 파일 앱에서 `.ipa`를 직접 누르면 Apple 정책상 실행되지 않습니다) |
-| **Ubuntu / Debian Linux (64-bit)** | `Toobar_1.1.2_amd64.deb` / `Toobar-1.1.2.AppImage` | 터미널에서 `sudo apt install ./Toobar_1.1.2_amd64.deb` 실행 후 `toobar` 실행, 또는 `chmod +x Toobar-1.1.2.AppImage && ./Toobar-1.1.2.AppImage` |
+| **macOS (Apple Silicon 맥북/맥)** | `Toobar-1.2.0-arm64.pkg` *(권장)* / `.dmg` / `.zip` | **권장**: `Toobar-1.2.0-arm64.pkg`를 우클릭 → **열기**로 설치하면 구버전 자동 정리 및 보안 격리 해제까지 한 번에 완료되어 바로 실행됩니다. (만약 macOS에서 차단 메시지가 뜨면 **시스템 설정 → 개인정보 보호 및 보안 → 없이도 열기** 클릭) |
+| **Windows 10 / 11 (64-bit)** | `Toobar Setup 1.2.0.exe` / `Toobar 1.2.0.exe` | 설치형(`Setup`) 또는 무설치 포터블(`Toobar 1.2.0.exe`) 실행. **Windows의 PC 보호(SmartScreen)** 파란 창이 뜨면 **추가 정보 → 실행**을 클릭하세요. |
+| **Android (스마트폰 / 태블릿)** | `Toobar-1.2.0-android.apk` | 기기에서 `.apk` 파일을 눌러 설치 (**출처를 알 수 없는 앱 설치 허용** 및 Play 프로텍트 **무시하고 설치** 선택) |
+| **iPhone & iPad (iOS / iPadOS)** | **웹앱(PWA)** *(가장 간편)* 또는 `Toobar-1.2.0-iPhone-iPad.ipa` | **방법 1 (즉시 실행 권장)**: Safari에서 `https://karan211-bruno.github.io/toobar/` 접속 → 하단/상단 **공유 버튼 → 홈 화면에 추가** 클릭<br>**방법 2 (.ipa 설치)**: PC/Mac에서 **Sideloadly / AltStore**로 `.ipa` 서명 설치 (아이폰 파일 앱에서 `.ipa`를 직접 누르면 Apple 정책상 실행되지 않습니다) |
+| **Ubuntu / Debian Linux (64-bit)** | `Toobar_1.2.0_amd64.deb` / `Toobar-1.2.0.AppImage` | 터미널에서 `sudo apt install ./Toobar_1.2.0_amd64.deb` 실행 후 `toobar` 실행, 또는 `chmod +x Toobar-1.2.0.AppImage && ./Toobar-1.2.0.AppImage` |
 
 ---
 

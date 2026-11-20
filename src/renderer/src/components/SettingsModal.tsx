@@ -1,8 +1,12 @@
 // Settings Modal
 import React, { useEffect, useRef, useState } from 'react';
+import { DEFAULT_YOUTUBE_SHARE_SETTINGS } from '@shared/types';
 import { useAppStore } from '../store';
 import { api } from '../electron-bridge';
 import { webrtcManager } from '../webrtc';
+import { virtualBackgroundEngine } from '../virtual-background';
+import { BackgroundEffectsPanel } from './BackgroundEffectsPanel';
+import { YouTubeSettingsFields } from './YouTubeSettingsFields';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -10,6 +14,10 @@ interface SettingsModalProps {
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const {
+    rawLocalStream,
+    localStream,
+    setRawLocalStream,
+    setLocalStream,
     selectedAudioInput,
     selectedAudioOutput,
     selectedVideoInput,
@@ -21,13 +29,16 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     setSelectedVideoInput,
     audioEnabled,
     videoEnabled,
-    setAudioEnabled,
-    setVideoEnabled,
+    youtubeShareSettings,
+    setYouTubeShareSettings,
+    activeTab: storeActiveTab,
   } = useAppStore();
 
-  const [testStream, setTestStream] = useState<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [activeTab, setActiveTab] = useState<'audio' | 'video' | 'general'>('audio');
+  const ownsTempStreamRef = useRef(false);
+  const [activeTab, setActiveTab] = useState<'audio' | 'video' | 'youtube' | 'general'>(() =>
+    storeActiveTab === 'video' ? 'video' : 'audio'
+  );
   const modalRef = useRef<HTMLDivElement>(null);
 
   // Handle escape key
@@ -50,34 +61,68 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [onClose]);
 
-  // Test video preview
+  // Video preview: reuse active call/prejoin localStream when present, else create temporary preview stream
   useEffect(() => {
     let mounted = true;
-    let stream: MediaStream | null = null;
+    let tempRawStream: MediaStream | null = null;
+
+    const cleanupTemp = () => {
+      if (ownsTempStreamRef.current) {
+        virtualBackgroundEngine.stop();
+        tempRawStream?.getTracks().forEach((t) => t.stop());
+        const st = useAppStore.getState();
+        st.rawLocalStream?.getTracks().forEach((t) => t.stop());
+        st.localStream?.getTracks().forEach((t) => t.stop());
+        setRawLocalStream(null);
+        setLocalStream(null);
+        ownsTempStreamRef.current = false;
+      }
+    };
 
     const startTestPreview = async () => {
       if (activeTab !== 'video') {
-        if (testStream) {
-          testStream.getTracks().forEach(t => t.stop());
-          setTestStream(null);
+        cleanupTemp();
+        return;
+      }
+
+      const existing = useAppStore.getState().localStream;
+      if (existing && existing.active && !ownsTempStreamRef.current) {
+        if (videoRef.current) {
+          videoRef.current.srcObject = existing;
         }
         return;
       }
 
       try {
         const constraints = await api.getMediaConstraints();
+        const videoConstraint =
+          typeof constraints.video === 'object' ? { ...constraints.video } : {};
         if (selectedVideoInput && selectedVideoInput !== 'default') {
-          (constraints.video as any).deviceId = { exact: selectedVideoInput };
+          (videoConstraint as any).deviceId = { exact: selectedVideoInput };
         }
-        // Audio off for preview
-        constraints.audio = false;
 
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        if (mounted) {
-          setTestStream(stream);
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: videoConstraint,
+        });
+        tempRawStream = stream;
+
+        if (!mounted) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        ownsTempStreamRef.current = true;
+        setRawLocalStream(stream);
+        const output = (await virtualBackgroundEngine.applyRawStream(stream)) || stream;
+        virtualBackgroundEngine.setPaused(false);
+        if (!mounted) {
+          cleanupTemp();
+          return;
+        }
+        setLocalStream(output);
+        if (videoRef.current) {
+          videoRef.current.srcObject = output;
         }
       } catch (err) {
         console.error('Preview error:', err);
@@ -88,32 +133,68 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
     return () => {
       mounted = false;
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-      }
+      cleanupTemp();
     };
-  }, [selectedVideoInput, activeTab]);
+  }, [selectedVideoInput, activeTab, setRawLocalStream, setLocalStream]);
 
   useEffect(() => {
-    if (videoRef.current && testStream) {
-      videoRef.current.srcObject = testStream;
+    if (activeTab === 'video' && videoRef.current && localStream) {
+      videoRef.current.srcObject = localStream;
+      videoRef.current.play().catch(() => {});
     }
-  }, [testStream]);
+  }, [localStream, activeTab]);
 
   const handleAudioInputChange = async (deviceId: string) => {
     setSelectedAudioInput(deviceId);
-    // Restart local stream with new device
-    // This would be handled by the main app
+    const curRaw = rawLocalStream || localStream;
+    if (!curRaw || ownsTempStreamRef.current) return;
+    try {
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId && deviceId !== 'default' ? { deviceId: { exact: deviceId } } : true,
+        video: false,
+      });
+      const newAudio = audioStream.getAudioTracks()[0];
+      if (!newAudio) return;
+      newAudio.enabled = useAppStore.getState().audioEnabled;
+      curRaw.getAudioTracks().forEach((t) => t.stop());
+      const nextRaw = new MediaStream([...curRaw.getVideoTracks(), newAudio]);
+      setRawLocalStream(nextRaw);
+      const out = (await virtualBackgroundEngine.applyRawStream(nextRaw)) || nextRaw;
+      setLocalStream(out);
+      await webrtcManager.syncLocalStream(out);
+    } catch (err) {
+      console.error('Audio input switch error:', err);
+    }
   };
 
   const handleVideoInputChange = async (deviceId: string) => {
     setSelectedVideoInput(deviceId);
+    const curRaw = rawLocalStream || localStream;
+    if (!curRaw || ownsTempStreamRef.current) return;
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: deviceId && deviceId !== 'default' ? { deviceId: { exact: deviceId } } : true,
+      });
+      const newVideo = videoStream.getVideoTracks()[0];
+      if (!newVideo) return;
+      newVideo.enabled = useAppStore.getState().videoEnabled;
+      curRaw.getVideoTracks().forEach((t) => t.stop());
+      const nextRaw = new MediaStream([...curRaw.getAudioTracks(), newVideo]);
+      setRawLocalStream(nextRaw);
+      const out = (await virtualBackgroundEngine.applyRawStream(nextRaw)) || nextRaw;
+      setLocalStream(out);
+      await webrtcManager.syncLocalStream(out);
+    } catch (err) {
+      console.error('Video input switch error:', err);
+    }
   };
 
   const handleAudioOutputChange = async (deviceId: string) => {
     setSelectedAudioOutput(deviceId);
-    // In real app, use setSinkId on audio elements
   };
+
+  const previewStream = localStream;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -139,18 +220,19 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
         {/* Tabs */}
         <div className="flex border-b border-border-color">
-          {(['audio', 'video', 'general'] as const).map(tab => (
+          {(['audio', 'video', 'youtube', 'general'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-3 px-4 text-sm font-medium border-b-2 transition ${
+              className={`flex-1 py-3 px-3 text-xs sm:text-sm font-medium border-b-2 transition ${
                 activeTab === tab
                   ? 'border-accent-primary text-primary'
                   : 'border-transparent text-muted hover:text-secondary'
               }`}
             >
               {tab === 'audio' && '오디오'}
-              {tab === 'video' && '비디오'}
+              {tab === 'video' && '비디오·배경'}
+              {tab === 'youtube' && '유튜브 공유'}
               {tab === 'general' && '일반'}
             </button>
           ))}
@@ -249,12 +331,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   카메라 미리보기
                 </label>
                 <div className="aspect-video bg-tertiary rounded-lg overflow-hidden border border-border-color relative">
-                  {testStream ? (
+                  {previewStream ? (
                     <video
                       ref={videoRef}
                       autoPlay
                       muted
                       playsInline
+                      style={{ transform: 'scaleX(-1)' }}
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -267,6 +350,11 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* AI Virtual Background & Blur */}
+              <div className="border-t border-border-color pt-4">
+                <BackgroundEffectsPanel />
               </div>
 
               {/* Camera Selection */}
@@ -335,6 +423,21 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             </div>
           )}
 
+          {activeTab === 'youtube' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-medium text-primary mb-1">유튜브 함께 보기 기본 설정</h3>
+                <p className="text-xs text-muted">
+                  회의에서 유튜브 영상을 공유할 때 적용할 동기화·권한·플레이어 기본값을 설정합니다.
+                </p>
+              </div>
+              <YouTubeSettingsFields
+                settings={youtubeShareSettings || DEFAULT_YOUTUBE_SHARE_SETTINGS}
+                onChange={setYouTubeShareSettings}
+              />
+            </div>
+          )}
+
           {activeTab === 'general' && (
             <div className="space-y-6">
               <div>
@@ -372,8 +475,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               <div className="border-t border-border-color pt-4">
                 <h3 className="font-medium text-secondary mb-3">정보</h3>
                 <div className="text-sm text-muted space-y-1">
-                  <p>Toobar v1.0.0</p>
-                  <p>Electron + React + WebRTC</p>
+                  <p>Toobar v1.2.0</p>
+                  <p>Electron + React + WebRTC + MediaPipe AI</p>
                   <p className="mt-2">
                     <a href="https://github.com" target="_blank" rel="noopener noreferrer">
                       오픈소스 라이선스 보기

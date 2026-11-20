@@ -7,6 +7,7 @@ import {
   fstatSync,
   readSync,
   closeSync,
+  readdirSync,
 } from 'fs';
 import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
@@ -251,7 +252,7 @@ function generateOtaUpdateBundle() {
     buildId,
     buildTimestamp: now,
     releaseNotes:
-      'v1.1.2: 내부 명칭·프로토콜·저장소를 100% Toobar로 완전 일원화 및 구버전 자동 정리',
+      'v1.2.0: 유튜브 공유(재생 동기화·공유 설정) 및 AI 가상 배경/배경 흐리게 처리 기능 추가',
     hash: contentHash,
   };
 
@@ -374,6 +375,18 @@ async function main() {
   const iconPngSrc = join(rootDir, 'public/icon.png');
   if (existsSync(iconPngSrc)) {
     writeFileSync(join(rootDir, 'dist/renderer/icon.png'), preadFile(iconPngSrc));
+  }
+
+  // Copy MediaPipe segmentation WASM + model assets to dist/renderer/mediapipe for Web/PWA & fallback CDN
+  const mediapipeSrcDir = join(rootDir, 'public/mediapipe');
+  const mediapipeDstDir = join(rootDir, 'dist/renderer/mediapipe');
+  if (existsSync(mediapipeSrcDir)) {
+    mkdirSync(mediapipeDstDir, { recursive: true });
+    for (const fileName of readdirSync(mediapipeSrcDir)) {
+      const srcPath = join(mediapipeSrcDir, fileName);
+      writeFileSync(join(mediapipeDstDir, fileName), preadFile(srcPath));
+    }
+    console.log('Copied MediaPipe assets -> dist/renderer/mediapipe/');
   }
 
   const webManifest = {

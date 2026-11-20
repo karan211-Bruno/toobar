@@ -14,6 +14,7 @@ import { ConnectionIndicator } from './ConnectionIndicator';
 import { InviteModal } from './InviteModal';
 import { UpdateModal } from './UpdateModal';
 import { SharePickerModal, CollaborationStage } from './CollaborationStage';
+import { BackgroundEffectsModal } from './BackgroundEffectsPanel';
 
 export function MeetingScreen() {
   const {
@@ -30,6 +31,7 @@ export function MeetingScreen() {
     isConnected,
     connectionError,
     shareSession,
+    backgroundConfig,
   } = useAppStore();
 
   const [showSidebar, setShowSidebar] = useState(false);
@@ -43,6 +45,7 @@ export function MeetingScreen() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showBgModal, setShowBgModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [quickCopied, setQuickCopied] = useState(false);
 
@@ -282,7 +285,7 @@ export function MeetingScreen() {
               <rect x="2" y="3" width="20" height="14" rx="2" />
               <path d="M8 21h8M12 17v4" />
             </svg>
-            <span>화면 · 칠판 · PDF · 미디어 공유</span>
+            <span>화면 · 칠판 · 유튜브 · 공유</span>
           </button>
 
           <button
@@ -429,6 +432,8 @@ export function MeetingScreen() {
         isHost={currentUser.isHost}
         onToggleAudio={handleToggleAudio}
         onToggleVideo={handleToggleVideo}
+        isBackgroundActive={Boolean(backgroundConfig && backgroundConfig.mode !== 'none')}
+        onOpenBackgroundEffects={() => setShowBgModal(true)}
         onSwitchCamera={() => webrtcManager.switchCamera()}
         showSwitchCamera={isMobileDevice}
         onToggleScreenShare={handleToggleScreenShare}
@@ -482,6 +487,9 @@ export function MeetingScreen() {
 
       {/* Content & Screen Share Picker Modal */}
       {showShareModal && <SharePickerModal onClose={() => setShowShareModal(false)} />}
+
+      {/* Background Effects Modal */}
+      {showBgModal && <BackgroundEffectsModal onClose={() => setShowBgModal(false)} />}
 
       {/* Live OTA Update Modal */}
       {showUpdateModal && <UpdateModal onClose={() => setShowUpdateModal(false)} />}

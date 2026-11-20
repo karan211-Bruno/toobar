@@ -26,6 +26,7 @@ import type {
 import { useAppStore } from './store';
 import { api, isElectron } from './electron-bridge';
 import { cloudBus, detectDevicePlatform, getOrCreateUserCode, UniversalBridgePacket } from './cloud-bus';
+import { virtualBackgroundEngine } from './virtual-background';
 
 const DEFAULT_SIGNALING_URL = 'http://localhost:3002';
 
@@ -1022,8 +1023,11 @@ class WebRTCManager {
     const currentMode = useAppStore.getState().cameraFacingMode;
     const nextMode = currentMode === 'user' ? 'environment' : 'user';
     try {
-      const { localStream, videoEnabled } = useAppStore.getState();
-      localStream?.getVideoTracks().forEach((t) => t.stop());
+      const { rawLocalStream, localStream, videoEnabled } = useAppStore.getState();
+      rawLocalStream?.getVideoTracks().forEach((t) => t.stop());
+      if (localStream && localStream !== rawLocalStream) {
+        localStream.getVideoTracks().forEach((t) => t.stop());
+      }
 
       const newVideoStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -1037,12 +1041,15 @@ class WebRTCManager {
       if (!newVideoTrack) return;
       newVideoTrack.enabled = videoEnabled;
 
-      const audioTracks = localStream ? localStream.getAudioTracks() : [];
-      const nextStream = new MediaStream([...audioTracks, newVideoTrack]);
+      const audioTracks = (rawLocalStream || localStream)?.getAudioTracks() || [];
+      const nextRawStream = new MediaStream([...audioTracks, newVideoTrack]);
 
       useAppStore.getState().setCameraFacingMode(nextMode);
-      useAppStore.getState().setLocalStream(nextStream);
-      await this.syncLocalStream(nextStream);
+      useAppStore.getState().setRawLocalStream(nextRawStream);
+      const outputStream =
+        (await virtualBackgroundEngine.applyRawStream(nextRawStream)) || nextRawStream;
+      useAppStore.getState().setLocalStream(outputStream);
+      await this.syncLocalStream(outputStream);
     } catch (err) {
       console.error('[WebRTC] Failed to switch camera:', err);
     }
@@ -1050,7 +1057,7 @@ class WebRTCManager {
 
   public async setLocalAudioEnabled(enabled: boolean): Promise<void> {
     useAppStore.getState().setAudioEnabled(enabled);
-    let { localStream } = useAppStore.getState();
+    let { rawLocalStream, localStream } = useAppStore.getState();
 
     if (enabled && (!localStream || localStream.getAudioTracks().length === 0)) {
       try {
@@ -1061,6 +1068,10 @@ class WebRTCManager {
         const newAudioTrack = audioStream.getAudioTracks()[0];
         if (newAudioTrack) {
           newAudioTrack.enabled = true;
+          if (rawLocalStream) {
+            const nextRaw = new MediaStream([...rawLocalStream.getVideoTracks(), newAudioTrack]);
+            useAppStore.getState().setRawLocalStream(nextRaw);
+          }
           const nextStream = localStream
             ? new MediaStream([...localStream.getVideoTracks(), newAudioTrack])
             : new MediaStream([newAudioTrack]);
@@ -1071,6 +1082,11 @@ class WebRTCManager {
       } catch {}
     }
 
+    if (rawLocalStream) {
+      rawLocalStream.getAudioTracks().forEach((track) => {
+        track.enabled = enabled;
+      });
+    }
     if (localStream) {
       localStream.getAudioTracks().forEach((track) => {
         track.enabled = enabled;
@@ -1090,9 +1106,11 @@ class WebRTCManager {
 
   public async setLocalVideoEnabled(enabled: boolean): Promise<void> {
     useAppStore.getState().setVideoEnabled(enabled);
-    let { localStream, isScreenSharing, cameraFacingMode } = useAppStore.getState();
+    virtualBackgroundEngine.setPaused(!enabled);
+    let { rawLocalStream, localStream, isScreenSharing, cameraFacingMode } = useAppStore.getState();
+    const baseStream = rawLocalStream || localStream;
 
-    if (enabled && (!localStream || localStream.getVideoTracks().length === 0)) {
+    if (enabled && (!baseStream || baseStream.getVideoTracks().length === 0)) {
       try {
         const videoStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
@@ -1101,16 +1119,25 @@ class WebRTCManager {
         const newVideoTrack = videoStream.getVideoTracks()[0];
         if (newVideoTrack) {
           newVideoTrack.enabled = true;
-          const nextStream = localStream
-            ? new MediaStream([...localStream.getAudioTracks(), newVideoTrack])
+          const nextRawStream = baseStream
+            ? new MediaStream([...baseStream.getAudioTracks(), newVideoTrack])
             : new MediaStream([newVideoTrack]);
-          useAppStore.getState().setLocalStream(nextStream);
-          localStream = nextStream;
-          await this.syncLocalStream(nextStream);
+          useAppStore.getState().setRawLocalStream(nextRawStream);
+          rawLocalStream = nextRawStream;
+          const outputStream =
+            (await virtualBackgroundEngine.applyRawStream(nextRawStream)) || nextRawStream;
+          useAppStore.getState().setLocalStream(outputStream);
+          localStream = outputStream;
+          await this.syncLocalStream(outputStream);
         }
       } catch {}
     }
 
+    if (rawLocalStream) {
+      rawLocalStream.getVideoTracks().forEach((track) => {
+        track.enabled = enabled;
+      });
+    }
     if (localStream) {
       localStream.getVideoTracks().forEach((track) => {
         track.enabled = enabled;
@@ -1678,6 +1705,7 @@ class WebRTCManager {
   }
 
   public async leaveMeeting(): Promise<void> {
+    virtualBackgroundEngine.stop();
     for (const peerId of Array.from(this.peerConnections.keys())) {
       this.closePeerConnection(peerId);
     }

@@ -169,7 +169,60 @@ export type ShareMode =
   | 'presentation'
   | 'pdf'
   | 'video'
-  | 'audio';
+  | 'audio'
+  | 'youtube';
+
+export interface YouTubeShareSettings {
+  syncPlayback: boolean;
+  allowParticipantControl: boolean;
+  autoplay: boolean;
+  captions: boolean;
+  loop: boolean;
+  showControls: boolean;
+  privacyEnhanced: boolean;
+  startMuted: boolean;
+  defaultVolume: number;
+  playbackRate: number;
+}
+
+export const DEFAULT_YOUTUBE_SHARE_SETTINGS: YouTubeShareSettings = {
+  syncPlayback: true,
+  allowParticipantControl: false,
+  autoplay: true,
+  captions: false,
+  loop: false,
+  showControls: true,
+  privacyEnhanced: true,
+  startMuted: false,
+  defaultVolume: 80,
+  playbackRate: 1,
+};
+
+export type VirtualBackgroundMode = 'none' | 'blur' | 'preset' | 'image';
+
+export interface VirtualBackgroundConfig {
+  mode: VirtualBackgroundMode;
+  blurAmount: number;
+  presetId: string;
+  customImageId?: string | null;
+  customImageDataUrl?: string | null;
+  edgeSoftness?: number;
+}
+
+export interface CustomBackgroundItem {
+  id: string;
+  name: string;
+  dataUrl: string;
+}
+
+export const DEFAULT_VIRTUAL_BACKGROUND_CONFIG: VirtualBackgroundConfig = {
+  mode: 'none',
+  blurAmount: 14,
+  presetId: 'office',
+  customImageId: null,
+  customImageDataUrl: null,
+  edgeSoftness: 2,
+};
 
 export interface WhiteboardStroke {
   id: string;
@@ -201,6 +254,13 @@ export interface ShareSessionState {
   pdfPage?: number;
   mediaName?: string;
   mediaType?: 'video' | 'audio';
+  youtubeVideoId?: string;
+  youtubePlaylistId?: string;
+  youtubeUrl?: string;
+  youtubeIsPlaying?: boolean;
+  youtubeCurrentTime?: number;
+  youtubeUpdatedAt?: number;
+  youtubeSettings?: YouTubeShareSettings;
 }
 
 export interface JoinPayload {

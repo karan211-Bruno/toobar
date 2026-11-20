@@ -1,6 +1,6 @@
 {
   "name": "toobar",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Toobar - Cross-platform video conferencing, messenger & file sharing (macOS, iPhone, iPad, Windows, Ubuntu, Android)",
   "main": "dist/main/index.js",
   "author": "Toobar Team",
@@ -30,6 +30,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "socket.io": "^4.7.5",

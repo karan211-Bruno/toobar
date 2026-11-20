@@ -1877,6 +1877,46 @@ async function startSignalingServer(): Promise<void> {
         return;
       }
 
+      if (
+        urlObj.pathname.startsWith('/mediapipe/') &&
+        (req.method === 'GET' || req.method === 'HEAD')
+      ) {
+        const fileName = urlObj.pathname.slice('/mediapipe/'.length);
+        if (!fileName || !/^[a-zA-Z0-9._-]+$/.test(fileName)) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Invalid asset name');
+          return;
+        }
+        const candidates = [
+          join(process.resourcesPath || '', 'app.asar.unpacked', 'public', 'mediapipe', fileName),
+          join(__dirname, '../../public/mediapipe', fileName),
+          join(app.getAppPath(), 'public', 'mediapipe', fileName),
+        ];
+        const foundPath = candidates.find((p) => p && existsSync(p));
+        if (!foundPath) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not found');
+          return;
+        }
+        const contentType = fileName.endsWith('.wasm')
+          ? 'application/wasm'
+          : fileName.endsWith('.js') || fileName.endsWith('.mjs')
+          ? 'application/javascript; charset=utf-8'
+          : 'application/octet-stream';
+        const fileSize = statSync(foundPath).size;
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Content-Length': String(fileSize),
+          'Cache-Control': 'public, max-age=86400',
+        });
+        if (req.method === 'HEAD') {
+          res.end();
+        } else {
+          createReadStream(foundPath).pipe(res);
+        }
+        return;
+      }
+
       if (urlObj.pathname === '/api/messenger-relay' && req.method === 'POST') {
         const chunks: Buffer[] = [];
         req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
@@ -2944,6 +2984,31 @@ app.whenReady().then(async () => {
           callback({});
         });
     });
+
+    // Inject valid HTTPS Referer/Origin for YouTube embeds when renderer runs on file://
+    session.defaultSession.webRequest.onBeforeSendHeaders(
+      {
+        urls: [
+          'https://www.youtube.com/*',
+          'https://youtube.com/*',
+          'https://www.youtube-nocookie.com/*',
+          'https://s.ytimg.com/*',
+          'https://*.googlevideo.com/*',
+        ],
+      },
+      (details, callback) => {
+        const headers = { ...details.requestHeaders };
+        const ref = headers['Referer'] || headers['referer'] || '';
+        if (!ref || ref.startsWith('file://')) {
+          headers['Referer'] = 'https://karan211-bruno.github.io/';
+        }
+        const origin = headers['Origin'] || headers['origin'] || '';
+        if (origin.startsWith('file://')) {
+          headers['Origin'] = 'https://karan211-bruno.github.io';
+        }
+        callback({ requestHeaders: headers });
+      }
+    );
 
     await startSignalingServer();
     const initialInvite = startupDeepLink || undefined;

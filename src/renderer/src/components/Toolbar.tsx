@@ -9,6 +9,8 @@ interface ToolbarProps {
   isHost: boolean;
   onToggleAudio: () => void;
   onToggleVideo: () => void;
+  onOpenBackgroundEffects?: () => void;
+  isBackgroundActive?: boolean;
   onSwitchCamera?: () => void;
   showSwitchCamera?: boolean;
   onToggleScreenShare: () => void;
@@ -34,6 +36,8 @@ export function Toolbar({
   isRecording,
   onToggleAudio,
   onToggleVideo,
+  onOpenBackgroundEffects,
+  isBackgroundActive = false,
   onSwitchCamera,
   showSwitchCamera = false,
   onToggleScreenShare,
@@ -103,6 +107,22 @@ export function Toolbar({
           </svg>
           <span>{videoEnabled ? '비디오 중지' : '비디오 시작'}</span>
         </button>
+
+        {onOpenBackgroundEffects && (
+          <button
+            onClick={onOpenBackgroundEffects}
+            onMouseDown={(e) => e.preventDefault()}
+            className={`dock-btn ${isBackgroundActive ? 'active' : ''}`}
+            aria-label="배경 흐리게 및 가상 배경 설정"
+            title="내 카메라 배경 흐림 및 가상 배경 설정"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 3l1.9 4.2L18 9l-4.1 1.8L12 15l-1.9-4.2L6 9l4.1-1.8L12 3z" />
+              <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" />
+            </svg>
+            <span>배경 효과</span>
+          </button>
+        )}
 
         {showSwitchCamera && onSwitchCamera && (
           <button

@@ -3,6 +3,8 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useAppStore } from '../store';
 import { api } from '../electron-bridge';
 import { webrtcManager } from '../webrtc';
+import { virtualBackgroundEngine } from '../virtual-background';
+import { BackgroundEffectsPanel } from './BackgroundEffectsPanel';
 
 export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }) {
   const {
@@ -19,6 +21,7 @@ export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }
     videoInputDevices,
     setSelectedAudioInput,
     setSelectedVideoInput,
+    setRawLocalStream,
     setLocalStream,
     setIsJoining,
   } = useAppStore();
@@ -61,11 +64,18 @@ export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }
         stream.getAudioTracks().forEach((track) => (track.enabled = curAudio));
         stream.getVideoTracks().forEach((track) => (track.enabled = curVideo));
 
-        setLocalStream(stream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
+        setRawLocalStream(stream);
+        const outputStream = (await virtualBackgroundEngine.applyRawStream(stream)) || stream;
+        if (!mounted) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
         }
-        await webrtcManager.syncLocalStream(stream);
+
+        setLocalStream(outputStream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = outputStream;
+        }
+        await webrtcManager.syncLocalStream(outputStream);
 
         const allDevices = await navigator.mediaDevices.enumerateDevices();
         const audioInputs = allDevices.filter((d) => d.kind === 'audioinput');
@@ -271,6 +281,7 @@ export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }
                   onClick={() => {
                     const next = !videoEnabled;
                     setVideoEnabled(next);
+                    virtualBackgroundEngine.setPaused(!next);
                     webrtcManager.broadcastUserUpdate({ videoEnabled: next });
                   }}
                   className={`btn py-2 px-3 text-xs ${
@@ -280,6 +291,11 @@ export function PreJoinScreen({ onJoinComplete }: { onJoinComplete: () => void }
                   {videoEnabled ? '끄기' : '켜기'}
                 </button>
               </div>
+            </div>
+
+            {/* Background Effects (Blur / Virtual Background) */}
+            <div className="p-3 bg-secondary rounded-lg border border-border-color">
+              <BackgroundEffectsPanel compact />
             </div>
 
             {/* Action Buttons */}

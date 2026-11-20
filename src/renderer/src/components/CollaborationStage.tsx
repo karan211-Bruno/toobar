@@ -1,11 +1,23 @@
 // Collaborative Share Hub & Stage
 // Supports: Screen/Window Share, Interactive Whiteboard, Presentation Slides, PDF Viewer, Video & Music Share
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { ShareSessionState, WhiteboardStroke, PresentationSlide } from '@shared/types';
+import {
+  DEFAULT_YOUTUBE_SHARE_SETTINGS,
+  type ShareSessionState,
+  type WhiteboardStroke,
+  type PresentationSlide,
+} from '@shared/types';
 import { useAppStore } from '../store';
 import { webrtcManager } from '../webrtc';
 import { isElectron } from '../electron-bridge';
 import { detectDevicePlatform, saveOrShareFile } from '../cloud-bus';
+import {
+  fetchYouTubeTitle,
+  parseTimeTokenToSeconds,
+  parseYouTubeUrl,
+} from '../youtube-utils';
+import { YouTubeSettingsFields } from './YouTubeSettingsFields';
+import { YouTubeShareStage } from './YouTubeShareStage';
 
 const DEFAULT_SLIDES: PresentationSlide[] = [
   {
@@ -130,13 +142,64 @@ async function uploadAndStartPdfShare(file: File): Promise<void> {
 
 export function SharePickerModal({ onClose }: SharePickerModalProps) {
   const currentUser = useAppStore((s) => s.currentUser);
+  const youtubeShareSettings =
+    useAppStore((s) => s.youtubeShareSettings) || DEFAULT_YOUTUBE_SHARE_SETTINGS;
+  const setYouTubeShareSettings = useAppStore((s) => s.setYouTubeShareSettings);
+
   const [shareSystemAudio, setShareSystemAudio] = useState(true);
+  const [showYouTubeSetup, setShowYouTubeSetup] = useState(false);
+  const [ytInput, setYtInput] = useState('');
+  const [ytStartTime, setYtStartTime] = useState('');
+  const [ytError, setYtError] = useState<string | null>(null);
+  const [ytLoading, setYtLoading] = useState(false);
+
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const slideInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
   if (!currentUser) return null;
+
+  const parsedYtPreview = parseYouTubeUrl(ytInput);
+
+  const handleStartYouTubeShare = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = parseYouTubeUrl(ytInput);
+    if (!parsed) {
+      setYtError('유튜브 링크(youtube.com/watch?v=..., youtu.be/..., shorts/...) 또는 11자리 영상 ID를 입력해 주세요.');
+      return;
+    }
+    setYtError(null);
+    setYtLoading(true);
+    try {
+      const title = parsed.videoId
+        ? await fetchYouTubeTitle(parsed.videoId)
+        : 'YouTube 재생목록';
+      const customStart = ytStartTime.trim() ? parseTimeTokenToSeconds(ytStartTime) : 0;
+      const startSec = customStart > 0 ? customStart : parsed.startSeconds;
+
+      const session: ShareSessionState = {
+        mode: 'youtube',
+        ownerId: currentUser.id,
+        ownerName: currentUser.name,
+        title,
+        youtubeVideoId: parsed.videoId,
+        youtubePlaylistId: parsed.playlistId,
+        youtubeUrl: parsed.canonicalUrl,
+        youtubeIsPlaying: youtubeShareSettings.autoplay,
+        youtubeCurrentTime: startSec,
+        youtubeUpdatedAt: Date.now(),
+        youtubeSettings: { ...youtubeShareSettings },
+      };
+      useAppStore.getState().clearWhiteboardStrokes();
+      await webrtcManager.startCustomShare(session, null);
+      onClose();
+    } catch {
+      setYtError('유튜브 공유를 시작하지 못했습니다. 링크를 다시 확인해 주세요.');
+    } finally {
+      setYtLoading(false);
+    }
+  };
 
   const handleScreenShare = async () => {
     onClose();
@@ -242,14 +305,18 @@ export function SharePickerModal({ onClose }: SharePickerModalProps) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
-        className="modal-content w-full max-w-2xl overflow-hidden"
+        className="modal-content w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border-color">
           <div>
-            <h2 className="font-semibold text-primary text-lg">화면 및 콘텐츠 공유</h2>
+            <h2 className="font-semibold text-primary text-lg">
+              {showYouTubeSetup ? '▶️ 유튜브 함께 보기 및 공유 설정' : '화면 및 콘텐츠 공유'}
+            </h2>
             <p className="text-xs text-muted">
-              참가자들과 함께 볼 화면, 전자칠판, 프레젠테이션, PDF, 동영상 또는 음악을 선택하세요
+              {showYouTubeSetup
+                ? '공유할 유튜브 영상 주소와 동기화 · 권한 · 플레이어 옵션을 설정하세요'
+                : '참가자들과 함께 볼 화면, 유튜브, 전자칠판, 프레젠테이션, PDF, 동영상을 선택하세요'}
             </p>
           </div>
           <button onClick={onClose} className="btn btn-icon btn-ghost p-1" aria-label="닫기">
@@ -260,157 +327,272 @@ export function SharePickerModal({ onClose }: SharePickerModalProps) {
           </button>
         </div>
 
-        <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto">
-          {/* 1. Screen / Window Share */}
-          <button
-            onClick={handleScreenShare}
-            className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
+        {showYouTubeSetup ? (
+          <form
+            onSubmit={handleStartYouTubeShare}
+            className="p-5 overflow-y-auto flex-1 space-y-4 yt-setup-card"
           >
-            <div className="w-12 h-12 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center mb-3">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="2" y="3" width="20" height="14" rx="2" />
-                <path d="M8 21h8M12 17v4" />
-              </svg>
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowYouTubeSetup(false);
+                  setYtError(null);
+                }}
+                className="btn btn-secondary py-1.5 px-3 text-xs"
+              >
+                ← 다른 공유 방식 선택
+              </button>
             </div>
-            <span className="font-semibold text-primary text-sm">전체 화면 / 앱 창</span>
-            <span className="text-xs text-muted mt-1">내 모니터 화면 실시간 공유</span>
-          </button>
 
-          {/* 2. Interactive Whiteboard */}
-          <button
-            onClick={handleWhiteboardShare}
-            className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
-          >
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-3">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 19l7-7 3 3-7 7-3-3z" />
-                <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
-                <path d="M2 2l7.586 7.586" />
-              </svg>
+            <div>
+              <label className="block text-xs font-medium text-secondary mb-1.5">
+                유튜브 링크 또는 영상 ID
+              </label>
+              <input
+                type="text"
+                autoFocus
+                value={ytInput}
+                onChange={(e) => {
+                  setYtInput(e.target.value);
+                  if (ytError) setYtError(null);
+                }}
+                placeholder="https://www.youtube.com/watch?v=... 또는 https://youtu.be/..."
+                className="input w-full text-sm"
+              />
+              {ytError && <p className="text-xs text-red-400 mt-1.5">{ytError}</p>}
             </div>
-            <span className="font-semibold text-primary text-sm">전자칠판 (화이트보드)</span>
-            <span className="text-xs text-muted mt-1">모두가 함께 그리는 공동 칠판</span>
-          </button>
 
-          {/* 3. Presentation Slides */}
-          <button
-            onClick={handlePresentationShare}
-            className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
-          >
-            <div className="w-12 h-12 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center mb-3">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="2" y="3" width="20" height="14" rx="2" />
-                <path d="M8 21l4-4 4 4" />
-                <path d="M7 8h10M7 12h6" />
-              </svg>
+            {parsedYtPreview && (
+              <div className="flex items-center gap-3 p-2.5 rounded-lg bg-tertiary border border-border-color">
+                {parsedYtPreview.videoId && (
+                  <img
+                    src={`https://i.ytimg.com/vi/${parsedYtPreview.videoId}/hqdefault.jpg`}
+                    alt="YouTube 썸네일 미리보기"
+                    className="rounded-md object-cover flex-shrink-0"
+                    style={{ width: 96, height: 54 }}
+                  />
+                )}
+                <div className="min-w-0 flex-1 text-xs">
+                  <div className="font-semibold text-primary truncate">
+                    {parsedYtPreview.videoId
+                      ? `영상 ID: ${parsedYtPreview.videoId}`
+                      : `재생목록 ID: ${parsedYtPreview.playlistId}`}
+                  </div>
+                  <div className="text-muted truncate mt-0.5">{parsedYtPreview.canonicalUrl}</div>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-secondary mb-1.5">
+                시작 위치 (선택 · 예: 1:30 또는 90초)
+              </label>
+              <input
+                type="text"
+                value={ytStartTime}
+                onChange={(e) => setYtStartTime(e.target.value)}
+                placeholder="0:00 (비워두면 링크의 시간 또는 처음부터 재생)"
+                className="input w-full text-xs"
+              />
             </div>
-            <span className="font-semibold text-primary text-sm">프레젠테이션</span>
-            <span className="text-xs text-muted mt-1">슬라이드 발표 및 실시간 판서</span>
-          </button>
 
-          {/* 4. PDF Document */}
-          <button
-            onClick={() => pdfInputRef.current?.click()}
-            className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
-          >
-            <div className="w-12 h-12 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center mb-3">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
-              </svg>
+            <div>
+              <div className="text-xs font-semibold text-primary mb-2">공유 설정</div>
+              <YouTubeSettingsFields
+                settings={youtubeShareSettings}
+                onChange={setYouTubeShareSettings}
+                compact
+              />
             </div>
-            <span className="font-semibold text-primary text-sm">PDF 문서 공유</span>
-            <span className="text-xs text-muted mt-1">PDF 파일 열기 및 페이지 판서</span>
-          </button>
 
-          {/* 5. Video File Share */}
-          <button
-            onClick={() => videoInputRef.current?.click()}
-            className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
-          >
-            <div className="w-12 h-12 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center mb-3">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
-                <polygon points="10 8 16 12 10 16 10 8" />
-              </svg>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-color">
+              <button
+                type="button"
+                onClick={() => setShowYouTubeSetup(false)}
+                className="btn btn-secondary py-2 px-4 text-xs"
+              >
+                뒤로
+              </button>
+              <button
+                type="submit"
+                disabled={ytLoading || !ytInput.trim()}
+                className="btn btn-primary py-2 px-5 text-sm font-semibold"
+              >
+                {ytLoading ? '영상 정보 불러오는 중...' : '▶ 유튜브 공유 시작'}
+              </button>
             </div>
-            <span className="font-semibold text-primary text-sm">동영상 함께 보기</span>
-            <span className="text-xs text-muted mt-1">MP4/WebM 영상 + 소리 스트리밍</span>
-          </button>
+          </form>
+        ) : (
+          <>
+            <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto">
+              {/* 1. Screen / Window Share */}
+              <button
+                onClick={handleScreenShare}
+                className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
+              >
+                <div className="w-12 h-12 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center mb-3">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" />
+                    <path d="M8 21h8M12 17v4" />
+                  </svg>
+                </div>
+                <span className="font-semibold text-primary text-sm">전체 화면 / 앱 창</span>
+                <span className="text-xs text-muted mt-1">내 모니터 화면 실시간 공유</span>
+              </button>
 
-          {/* 6. Music / Audio File Share */}
-          <button
-            onClick={() => audioInputRef.current?.click()}
-            className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
-          >
-            <div className="w-12 h-12 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center mb-3">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 18V5l12-2v13" />
-                <circle cx="6" cy="18" r="3" />
-                <circle cx="18" cy="16" r="3" />
-              </svg>
+              {/* 2. YouTube Synchronized Watch */}
+              <button
+                onClick={() => setShowYouTubeSetup(true)}
+                className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
+              >
+                <div className="w-12 h-12 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center mb-3">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="5" width="20" height="14" rx="4" />
+                    <polygon points="10 9 16 12 10 15 10 9" fill="currentColor" />
+                  </svg>
+                </div>
+                <span className="font-semibold text-primary text-sm">유튜브 함께 보기</span>
+                <span className="text-xs text-muted mt-1">재생 동기화 · 공유 설정 지원</span>
+              </button>
+
+              {/* 3. Interactive Whiteboard */}
+              <button
+                onClick={handleWhiteboardShare}
+                className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
+              >
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-3">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 19l7-7 3 3-7 7-3-3z" />
+                    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+                    <path d="M2 2l7.586 7.586" />
+                  </svg>
+                </div>
+                <span className="font-semibold text-primary text-sm">전자칠판 (화이트보드)</span>
+                <span className="text-xs text-muted mt-1">모두가 함께 그리는 공동 칠판</span>
+              </button>
+
+              {/* 4. Presentation Slides */}
+              <button
+                onClick={handlePresentationShare}
+                className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
+              >
+                <div className="w-12 h-12 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center mb-3">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" />
+                    <path d="M8 21l4-4 4 4" />
+                    <path d="M7 8h10M7 12h6" />
+                  </svg>
+                </div>
+                <span className="font-semibold text-primary text-sm">프레젠테이션</span>
+                <span className="text-xs text-muted mt-1">슬라이드 발표 및 실시간 판서</span>
+              </button>
+
+              {/* 5. PDF Document */}
+              <button
+                onClick={() => pdfInputRef.current?.click()}
+                className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
+              >
+                <div className="w-12 h-12 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center mb-3">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                  </svg>
+                </div>
+                <span className="font-semibold text-primary text-sm">PDF 문서 공유</span>
+                <span className="text-xs text-muted mt-1">PDF 파일 열기 및 페이지 판서</span>
+              </button>
+
+              {/* 6. Video File Share */}
+              <button
+                onClick={() => videoInputRef.current?.click()}
+                className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
+              >
+                <div className="w-12 h-12 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center mb-3">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+                    <polygon points="10 8 16 12 10 16 10 8" />
+                  </svg>
+                </div>
+                <span className="font-semibold text-primary text-sm">동영상 함께 보기</span>
+                <span className="text-xs text-muted mt-1">MP4/WebM 영상 + 소리 스트리밍</span>
+              </button>
+
+              {/* 7. Music / Audio File Share */}
+              <button
+                onClick={() => audioInputRef.current?.click()}
+                className="flex flex-col items-center p-4 rounded-xl bg-tertiary hover:bg-accent-primary/20 border border-border-color hover:border-accent-primary transition text-center"
+              >
+                <div className="w-12 h-12 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center mb-3">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </svg>
+                </div>
+                <span className="font-semibold text-primary text-sm">음악 / 오디오 공유</span>
+                <span className="text-xs text-muted mt-1">MP3/WAV 고음질 음악 함께 듣기</span>
+              </button>
             </div>
-            <span className="font-semibold text-primary text-sm">음악 / 오디오 공유</span>
-            <span className="text-xs text-muted mt-1">MP3/WAV 고음질 음악 함께 듣기</span>
-          </button>
-        </div>
 
-        {/* Hidden file inputs */}
-        <input
-          ref={pdfInputRef}
-          type="file"
-          accept=".pdf,application/pdf"
-          className="hidden"
-          onChange={handlePdfSelected}
-        />
-        <input
-          ref={slideInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={handleSlideFilesSelected}
-        />
-        <input
-          ref={videoInputRef}
-          type="file"
-          accept="video/*,.mp4,.webm,.mov,.mkv"
-          className="hidden"
-          onChange={(e) => handleMediaSelected(e, 'video')}
-        />
-        <input
-          ref={audioInputRef}
-          type="file"
-          accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
-          className="hidden"
-          onChange={(e) => handleMediaSelected(e, 'audio')}
-        />
-
-        {/* Options bar */}
-        <div className="px-5 py-3 bg-secondary border-t border-border-color flex items-center justify-between">
-          <label className="flex items-center gap-2 cursor-pointer text-xs text-secondary">
+            {/* Hidden file inputs */}
             <input
-              type="checkbox"
-              checked={shareSystemAudio}
-              onChange={(e) => setShareSystemAudio(e.target.checked)}
-              className="w-4 h-4 rounded"
+              ref={pdfInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              className="hidden"
+              onChange={handlePdfSelected}
             />
-            <span>컴퓨터 오디오(시스템 소리) 함께 공유</span>
-          </label>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => slideInputRef.current?.click()}
-              className="btn btn-secondary text-xs py-1.5 px-3"
-            >
-              이미지 슬라이드 묶음 열기...
-            </button>
-            <button onClick={onClose} className="btn btn-ghost text-xs py-1.5 px-3">
-              취소
-            </button>
-          </div>
-        </div>
+            <input
+              ref={slideInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleSlideFilesSelected}
+            />
+            <input
+              ref={videoInputRef}
+              type="file"
+              accept="video/*,.mp4,.webm,.mov,.mkv"
+              className="hidden"
+              onChange={(e) => handleMediaSelected(e, 'video')}
+            />
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
+              className="hidden"
+              onChange={(e) => handleMediaSelected(e, 'audio')}
+            />
+
+            {/* Options bar */}
+            <div className="px-5 py-3 bg-secondary border-t border-border-color flex items-center justify-between flex-wrap gap-2">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-secondary">
+                <input
+                  type="checkbox"
+                  checked={shareSystemAudio}
+                  onChange={(e) => setShareSystemAudio(e.target.checked)}
+                  className="w-4 h-4 rounded"
+                />
+                <span>컴퓨터 오디오(시스템 소리) 함께 공유</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => slideInputRef.current?.click()}
+                  className="btn btn-secondary text-xs py-1.5 px-3"
+                >
+                  이미지 슬라이드 묶음 열기...
+                </button>
+                <button onClick={onClose} className="btn btn-ghost text-xs py-1.5 px-3">
+                  취소
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -436,8 +618,9 @@ export function CollaborationStage() {
   const [brushSize, setBrushSize] = useState(4);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentPoints, setCurrentPoints] = useState<Array<{ x: number; y: number }>>([]);
-  // In PDF mode, default to false (scroll/zoom mode) so user can freely read/scroll the PDF
+  // In PDF / YouTube mode, default to false so user can interact with player/document directly
   const [pdfAnnotateMode, setPdfAnnotateMode] = useState(false);
+  const [ytAnnotateMode, setYtAnnotateMode] = useState(false);
 
   if (!shareSession || shareSession.mode === 'none' || shareSession.mode === 'screen') {
     return null;
@@ -795,6 +978,7 @@ export function CollaborationStage() {
             {shareSession.mode === 'pdf' && '📄 PDF 문서'}
             {shareSession.mode === 'video' && '🎬 동영상 공유'}
             {shareSession.mode === 'audio' && '🎵 음악 공유'}
+            {shareSession.mode === 'youtube' && '▶️ 유튜브 공유'}
           </span>
           <span className="font-semibold text-xs text-primary truncate max-w-[220px]">
             {shareSession.title}
@@ -804,10 +988,11 @@ export function CollaborationStage() {
           </span>
         </div>
 
-        {/* Drawing / Annotation Tools (Available on Whiteboard, Presentation, and PDF) */}
+        {/* Drawing / Annotation Tools (Available on Whiteboard, Presentation, PDF, and YouTube) */}
         {(shareSession.mode === 'whiteboard' ||
           shareSession.mode === 'presentation' ||
-          shareSession.mode === 'pdf') && (
+          shareSession.mode === 'pdf' ||
+          shareSession.mode === 'youtube') && (
           <div className="collab-tools-group">
             {shareSession.mode === 'pdf' && (
               <>
@@ -835,6 +1020,16 @@ export function CollaborationStage() {
               </>
             )}
 
+            {shareSession.mode === 'youtube' && (
+              <button
+                onClick={() => setYtAnnotateMode(!ytAnnotateMode)}
+                className={`collab-tool-btn ${!ytAnnotateMode ? 'active' : ''}`}
+                title="유튜브 영상 직접 조작 모드와 화면 위 판서 모드를 전환합니다"
+              >
+                {ytAnnotateMode ? '🖱️ 영상 조작 모드로 전환' : '🖱️ 영상 조작 모드 켜짐'}
+              </button>
+            )}
+
             {(
               [
                 { id: 'pen', label: '✏️ 펜' },
@@ -852,10 +1047,16 @@ export function CollaborationStage() {
                   setTool(t.id);
                   if (shareSession.mode === 'pdf') {
                     setPdfAnnotateMode(true);
+                  } else if (shareSession.mode === 'youtube') {
+                    setYtAnnotateMode(true);
                   }
                 }}
                 className={`collab-tool-btn ${
-                  (shareSession.mode !== 'pdf' || pdfAnnotateMode) && tool === t.id ? 'active' : ''
+                  (shareSession.mode !== 'pdf' || pdfAnnotateMode) &&
+                  (shareSession.mode !== 'youtube' || ytAnnotateMode) &&
+                  tool === t.id
+                    ? 'active'
+                    : ''
                 }`}
               >
                 {t.label}
@@ -1095,6 +1296,32 @@ export function CollaborationStage() {
                 {shareSession.ownerName}님의 음악 스트림을 수신하는 중...
               </p>
             )}
+          </div>
+        )}
+
+        {/* Mode 6: Synchronized YouTube Shared Watch + Annotation Overlay */}
+        {shareSession.mode === 'youtube' && (
+          <div className="relative w-full h-full">
+            <YouTubeShareStage
+              shareSession={shareSession}
+              canControl={canControl || Boolean(shareSession.youtubeSettings?.allowParticipantControl)}
+              isOwnerOrHost={canControl}
+            />
+            <canvas
+              ref={canvasRef}
+              width={1600}
+              height={900}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              style={{ touchAction: ytAnnotateMode ? 'none' : 'auto' }}
+              className={`absolute inset-0 w-full h-full ${
+                ytAnnotateMode
+                  ? 'cursor-crosshair pointer-events-auto'
+                  : 'pointer-events-none'
+              }`}
+            />
           </div>
         )}
       </div>

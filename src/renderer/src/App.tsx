@@ -4,6 +4,7 @@ import { useAppStore } from './store';
 import { api, DeepLinkInvite, UpdateManifest } from './electron-bridge';
 import { webrtcManager } from './webrtc';
 import { cloudBus } from './cloud-bus';
+import { virtualBackgroundEngine } from './virtual-background';
 import { LoginScreen } from './components/LoginScreen';
 import { MeetingScreen } from './components/MeetingScreen';
 import { SettingsModal } from './components/SettingsModal';
@@ -50,7 +51,15 @@ export function App() {
 
   // Initialize local media stream (gracefully falls back to audio-only or video-only if a device is missing)
   const initializeLocalStream = useCallback(async () => {
+    const existingRaw = useAppStore.getState().rawLocalStream;
     const existingStream = useAppStore.getState().localStream;
+    if (existingRaw && existingRaw.active) {
+      const outputStream =
+        (await virtualBackgroundEngine.applyRawStream(existingRaw)) || existingRaw;
+      setLocalStream(outputStream);
+      await webrtcManager.syncLocalStream(outputStream);
+      return;
+    }
     if (existingStream && existingStream.active) {
       await webrtcManager.syncLocalStream(existingStream);
       return;
@@ -78,16 +87,17 @@ export function App() {
       }
 
       if (stream) {
-        setLocalStream(stream);
-        setIsConnected(true);
-        setConnectionError(null);
-
-        // Apply initial audio/video settings
         const { audioEnabled: curAudio, videoEnabled: curVideo } = useAppStore.getState();
         stream.getAudioTracks().forEach(track => (track.enabled = curAudio));
         stream.getVideoTracks().forEach(track => (track.enabled = curVideo));
 
-        await webrtcManager.syncLocalStream(stream);
+        useAppStore.getState().setRawLocalStream(stream);
+        const outputStream = (await virtualBackgroundEngine.applyRawStream(stream)) || stream;
+        setLocalStream(outputStream);
+        setIsConnected(true);
+        setConnectionError(null);
+
+        await webrtcManager.syncLocalStream(outputStream);
       } else {
         setIsConnected(true);
       }

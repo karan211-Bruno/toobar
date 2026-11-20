@@ -1,14 +1,18 @@
 // Zustand store for app state management
 import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
-import type {
-  User,
-  Meeting,
-  MeetingSettings,
-  ShareSessionState,
-  WhiteboardStroke,
-  ChatMessageItem,
-  ChatAttachment,
+import {
+  DEFAULT_VIRTUAL_BACKGROUND_CONFIG,
+  DEFAULT_YOUTUBE_SHARE_SETTINGS,
+  type User,
+  type Meeting,
+  type MeetingSettings,
+  type ShareSessionState,
+  type WhiteboardStroke,
+  type ChatMessageItem,
+  type ChatAttachment,
+  type VirtualBackgroundConfig,
+  type YouTubeShareSettings,
 } from '@shared/types';
 
 interface AppState {
@@ -35,6 +39,8 @@ interface AppState {
   setActiveTab: (tab: AppState['activeTab']) => void;
 
   // Media state
+  rawLocalStream: MediaStream | null;
+  setRawLocalStream: (stream: MediaStream | null) => void;
   localStream: MediaStream | null;
   setLocalStream: (stream: MediaStream | null) => void;
   screenStream: MediaStream | null;
@@ -50,6 +56,12 @@ interface AppState {
   setIsScreenSharing: (value: boolean) => void;
   cameraFacingMode: 'user' | 'environment';
   setCameraFacingMode: (mode: 'user' | 'environment') => void;
+
+  // Background Effects & YouTube Share Settings (persisted)
+  backgroundConfig: VirtualBackgroundConfig;
+  setBackgroundConfig: (updates: Partial<VirtualBackgroundConfig>) => void;
+  youtubeShareSettings: YouTubeShareSettings;
+  setYouTubeShareSettings: (updates: Partial<YouTubeShareSettings>) => void;
 
   // Devices
   audioInputDevices: MediaDeviceInfo[];
@@ -104,13 +116,16 @@ const initialState = {
   isJoining: false,
   showSettings: false,
   activeTab: 'video' as const,
-  localStream: null,
+  rawLocalStream: null as MediaStream | null,
+  localStream: null as MediaStream | null,
   screenStream: null,
   remoteStreams: {} as Record<string, MediaStream>,
   audioEnabled: true,
   videoEnabled: true,
   isScreenSharing: false,
   cameraFacingMode: 'user' as const,
+  backgroundConfig: DEFAULT_VIRTUAL_BACKGROUND_CONFIG,
+  youtubeShareSettings: DEFAULT_YOUTUBE_SHARE_SETTINGS,
   audioInputDevices: [],
   audioOutputDevices: [],
   videoInputDevices: [],
@@ -201,6 +216,7 @@ export const useAppStore = create<AppState>()(
         setShowSettings: (value) => set({ showSettings: value }),
         setActiveTab: (tab) => set({ activeTab: tab }),
 
+        setRawLocalStream: (stream) => set({ rawLocalStream: stream }),
         setLocalStream: (stream) => set({ localStream: stream }),
         setScreenStream: (stream) => set({ screenStream: stream }),
         setRemoteStream: (userId, stream) =>
@@ -215,7 +231,12 @@ export const useAppStore = create<AppState>()(
           }),
         setAudioEnabled: (value) => {
           set({ audioEnabled: value });
-          const { localStream, currentUser } = get();
+          const { rawLocalStream, localStream, currentUser } = get();
+          if (rawLocalStream) {
+            rawLocalStream.getAudioTracks().forEach((track) => {
+              track.enabled = value;
+            });
+          }
           if (localStream) {
             localStream.getAudioTracks().forEach((track) => {
               track.enabled = value;
@@ -228,7 +249,12 @@ export const useAppStore = create<AppState>()(
         },
         setVideoEnabled: (value) => {
           set({ videoEnabled: value });
-          const { localStream, currentUser } = get();
+          const { rawLocalStream, localStream, currentUser } = get();
+          if (rawLocalStream) {
+            rawLocalStream.getVideoTracks().forEach((track) => {
+              track.enabled = value;
+            });
+          }
           if (localStream) {
             localStream.getVideoTracks().forEach((track) => {
               track.enabled = value;
@@ -252,6 +278,14 @@ export const useAppStore = create<AppState>()(
           }
         },
         setCameraFacingMode: (mode) => set({ cameraFacingMode: mode }),
+        setBackgroundConfig: (updates) =>
+          set((state) => ({
+            backgroundConfig: { ...state.backgroundConfig, ...updates },
+          })),
+        setYouTubeShareSettings: (updates) =>
+          set((state) => ({
+            youtubeShareSettings: { ...state.youtubeShareSettings, ...updates },
+          })),
 
         setMediaDevices: (devices) =>
           set({
@@ -296,14 +330,37 @@ export const useAppStore = create<AppState>()(
         setIsRecording: (value) => set({ isRecording: value }),
 
         reset: () => {
-          const { localStream, screenStream } = get();
+          const {
+            rawLocalStream,
+            localStream,
+            screenStream,
+            selectedAudioInput,
+            selectedAudioOutput,
+            selectedVideoInput,
+            audioEnabled,
+            videoEnabled,
+            backgroundConfig,
+            youtubeShareSettings,
+          } = get();
+          if (rawLocalStream) {
+            rawLocalStream.getTracks().forEach((t) => t.stop());
+          }
           if (localStream) {
             localStream.getTracks().forEach((t) => t.stop());
           }
           if (screenStream) {
             screenStream.getTracks().forEach((t) => t.stop());
           }
-          set(initialState);
+          set({
+            ...initialState,
+            selectedAudioInput,
+            selectedAudioOutput,
+            selectedVideoInput,
+            audioEnabled,
+            videoEnabled,
+            backgroundConfig,
+            youtubeShareSettings,
+          });
         },
       }),
       {
@@ -314,6 +371,8 @@ export const useAppStore = create<AppState>()(
           selectedVideoInput: state.selectedVideoInput,
           audioEnabled: state.audioEnabled,
           videoEnabled: state.videoEnabled,
+          backgroundConfig: state.backgroundConfig,
+          youtubeShareSettings: state.youtubeShareSettings,
         }),
       }
     ),
